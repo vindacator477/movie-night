@@ -1,19 +1,72 @@
 import { useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Session } from '../types';
 import { useTheaters, useShowtimes } from '../hooks/useMovies';
+import * as api from '../api/client';
 import Card from './ui/Card';
 import Button from './ui/Button';
 
 interface Props {
   session: Session;
+  participantId: string | null;
 }
 
-export default function ShowtimeDisplay({ session }: Props) {
+export default function ShowtimeDisplay({ session, participantId }: Props) {
   const [selectedChain, setSelectedChain] = useState<string | undefined>();
+  const queryClient = useQueryClient();
 
-  const selectedMovie = session.movieOptions.find(
-    m => m.tmdb_id === session.selected_movie_id
-  );
+  // Get winning movie from ranked choice voting
+  const { data: winnerData } = useQuery({
+    queryKey: ['rankings-winner', session.id],
+    queryFn: () => api.getRankingsWinner(session.id),
+  });
+
+  const selectedMovie = winnerData?.winner;
+
+  // Get showtime votes
+  const { data: voteData } = useQuery({
+    queryKey: ['showtime-votes', session.id],
+    queryFn: () => api.getShowtimeVotes(session.id),
+    refetchInterval: 5000,
+  });
+
+  // Vote mutation
+  const voteMutation = useMutation({
+    mutationFn: (params: { theaterName: string; showtime: string; format: string }) =>
+      api.voteForShowtime(session.id, participantId!, params.theaterName, params.showtime, params.format),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['showtime-votes', session.id] });
+    },
+  });
+
+  // Check if user has already voted
+  const myVote = voteData?.votes.find(v => v.participant_id === participantId);
+
+  const handleShowtimeClick = (theaterName: string, showtime: string, format: string) => {
+    if (!participantId) return;
+    voteMutation.mutate({ theaterName, showtime, format });
+  };
+
+  // Helper to check if this showtime is selected by user
+  const isSelected = (theaterName: string, showtime: string, format: string) => {
+    return myVote?.theater_name === theaterName && myVote?.showtime === showtime && myVote?.format === format;
+  };
+
+  // Helper to get vote count for a showtime
+  const getVoteCount = (theaterName: string, showtime: string, format: string) => {
+    const entry = voteData?.voteCounts.find(
+      v => v.theaterName === theaterName && v.showtime === showtime && v.format === format
+    );
+    return entry?.count || 0;
+  };
+
+  // Helper to get voters for a showtime
+  const getVoters = (theaterName: string, showtime: string, format: string) => {
+    const entry = voteData?.voteCounts.find(
+      v => v.theaterName === theaterName && v.showtime === showtime && v.format === format
+    );
+    return entry?.voters || [];
+  };
 
   const { data: theaters } = useTheaters(
     session.location_zip || undefined,
@@ -25,6 +78,7 @@ export default function ShowtimeDisplay({ session }: Props) {
       ? {
           movie: selectedMovie.title,
           date: session.selected_date,
+          zip: session.location_zip || undefined,
           chain: selectedChain,
         }
       : null
@@ -38,7 +92,11 @@ export default function ShowtimeDisplay({ session }: Props) {
     );
   }
 
-  const formattedDate = new Date(session.selected_date + 'T00:00:00').toLocaleDateString(
+  // Normalize date string - extract YYYY-MM-DD if it's a full ISO datetime
+  const normalizedDate = session.selected_date.includes('T')
+    ? session.selected_date.split('T')[0]
+    : session.selected_date;
+  const formattedDate = new Date(normalizedDate + 'T00:00:00').toLocaleDateString(
     'en-US',
     {
       weekday: 'long',
@@ -74,6 +132,61 @@ export default function ShowtimeDisplay({ session }: Props) {
           </div>
         </div>
       </Card>
+
+      {/* Voting Summary */}
+      {voteData && voteData.voteCounts.length > 0 && (
+        <Card className="bg-gray-800/50 border border-cinema-accent/30">
+          <h4 className="font-bold mb-3 flex items-center gap-2">
+            <span className="text-cinema-accent">Showtime Votes</span>
+            {voteData.winner && <span className="text-green-400 text-sm">(Winner highlighted in green)</span>}
+          </h4>
+          <div className="space-y-2">
+            {voteData.voteCounts
+              .sort((a, b) => b.count - a.count)
+              .map((vote, idx) => (
+                <div
+                  key={idx}
+                  className={`flex justify-between items-center p-2 rounded ${
+                    idx === 0 ? 'bg-green-600/20 border border-green-500/30' : 'bg-gray-700/50'
+                  }`}
+                >
+                  <div>
+                    <span className="font-medium">{vote.theaterName}</span>
+                    <span className="text-gray-400 mx-2">@</span>
+                    <span className="text-cinema-accent">{vote.showtime}</span>
+                    {vote.format !== 'Standard' && (
+                      <span className="ml-2 text-xs bg-gray-600 px-1.5 py-0.5 rounded">{vote.format}</span>
+                    )}
+                  </div>
+                  <div className="text-right">
+                    <span className="font-bold">{vote.count}</span>
+                    <span className="text-gray-400 text-sm ml-1">vote{vote.count !== 1 ? 's' : ''}</span>
+                    <div className="text-xs text-gray-500">{vote.voters.join(', ')}</div>
+                  </div>
+                </div>
+              ))}
+          </div>
+          {myVote && (
+            <p className="mt-3 text-sm text-gray-400">
+              Your vote: <span className="text-cinema-accent">{myVote.theater_name} @ {myVote.showtime}</span>
+            </p>
+          )}
+          {!myVote && participantId && (
+            <p className="mt-3 text-sm text-gray-400">
+              Click on a showtime below to cast your vote!
+            </p>
+          )}
+        </Card>
+      )}
+
+      {/* Voting prompt if no votes yet */}
+      {voteData && voteData.voteCounts.length === 0 && participantId && (
+        <Card className="bg-blue-900/20 border border-blue-500/30">
+          <p className="text-center text-blue-300">
+            Click on any showtime below to vote for your preferred time!
+          </p>
+        </Card>
+      )}
 
       {/* Chain Filter */}
       <div className="flex gap-2">
@@ -143,26 +256,46 @@ export default function ShowtimeDisplay({ session }: Props) {
               </div>
 
               <div className="mt-4 flex flex-wrap gap-2">
-                {theater.times.map((showtime, idx) => (
-                  <div
-                    key={idx}
-                    className={`px-3 py-2 rounded-lg text-sm ${
-                      showtime.available
-                        ? 'bg-gray-700 hover:bg-gray-600 cursor-pointer'
-                        : 'bg-gray-800 text-gray-500 cursor-not-allowed'
-                    }`}
-                  >
-                    <span className="font-medium">{showtime.time}</span>
-                    {showtime.format !== 'Standard' && (
-                      <span className="ml-1 text-xs text-cinema-accent">
-                        {showtime.format}
-                      </span>
-                    )}
-                    {!showtime.available && (
-                      <span className="ml-1 text-xs">(Sold Out)</span>
-                    )}
-                  </div>
-                ))}
+                {theater.times.map((showtime, idx) => {
+                  const voteCount = getVoteCount(theater.theaterName, showtime.time, showtime.format);
+                  const voters = getVoters(theater.theaterName, showtime.time, showtime.format);
+                  const selected = isSelected(theater.theaterName, showtime.time, showtime.format);
+                  const isWinner = voteData?.winner?.theaterName === theater.theaterName &&
+                    voteData?.winner?.showtime === showtime.time &&
+                    voteData?.winner?.format === showtime.format;
+
+                  return (
+                    <div
+                      key={idx}
+                      onClick={() => showtime.available && handleShowtimeClick(theater.theaterName, showtime.time, showtime.format)}
+                      className={`px-3 py-2 rounded-lg text-sm transition-all ${
+                        selected
+                          ? 'bg-cinema-accent text-black ring-2 ring-white'
+                          : isWinner
+                          ? 'bg-green-600 hover:bg-green-500 cursor-pointer'
+                          : showtime.available
+                          ? 'bg-gray-700 hover:bg-gray-600 cursor-pointer'
+                          : 'bg-gray-800 text-gray-500 cursor-not-allowed'
+                      }`}
+                      title={voters.length > 0 ? `Votes: ${voters.join(', ')}` : 'Click to vote'}
+                    >
+                      <span className="font-medium">{showtime.time}</span>
+                      {showtime.format !== 'Standard' && (
+                        <span className="ml-1 text-xs text-cinema-accent">
+                          {showtime.format}
+                        </span>
+                      )}
+                      {voteCount > 0 && (
+                        <span className={`ml-2 text-xs px-1.5 py-0.5 rounded ${selected ? 'bg-black/20' : 'bg-cinema-accent/20 text-cinema-accent'}`}>
+                          {voteCount} vote{voteCount !== 1 ? 's' : ''}
+                        </span>
+                      )}
+                      {!showtime.available && (
+                        <span className="ml-1 text-xs">(Sold Out)</span>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </Card>
           ))}

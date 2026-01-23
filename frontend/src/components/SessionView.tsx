@@ -6,9 +6,10 @@ import { Participant } from '../types';
 import Card from './ui/Card';
 import Button from './ui/Button';
 import DateVoting from './DateVoting';
-import MovieVoting from './MovieVoting';
+import RankedMovieVoting from './RankedMovieVoting';
 import LocationInput from './LocationInput';
 import ShowtimeDisplay from './ShowtimeDisplay';
+import CompletedSummary from './CompletedSummary';
 
 const PARTICIPANT_KEY = 'movie-night-participant';
 
@@ -26,6 +27,7 @@ export default function SessionView() {
     invalidateSession,
     joinSession,
     advanceSession,
+    goBackSession,
   } = useSession(sessionId || null);
 
   // Socket connection for real-time updates
@@ -93,6 +95,15 @@ export default function SessionView() {
       await advanceSession(participant.id);
     } catch (err) {
       console.error('Failed to advance session:', err);
+    }
+  };
+
+  const handleGoBack = async () => {
+    if (!participant) return;
+    try {
+      await goBackSession(participant.id);
+    } catch (err) {
+      console.error('Failed to go back:', err);
     }
   };
 
@@ -229,14 +240,26 @@ export default function SessionView() {
           </div>
 
           {session.status !== 'completed' && (
-            <Button
-              onClick={handleAdvance}
-              variant="secondary"
-              disabled={!isAdmin}
-              title={isAdmin ? 'Advance to next step' : 'Only the admin can advance'}
-            >
-              {isAdmin ? 'Next Step →' : `Next Step (Admin: ${session.admin_participant_id?.slice(0,8) || 'none'})`}
-            </Button>
+            <div className="flex gap-2">
+              {session.status !== 'voting_dates' && (
+                <Button
+                  onClick={handleGoBack}
+                  variant="outline"
+                  disabled={!isAdmin}
+                  title={isAdmin ? 'Go back to previous step' : 'Only the admin can go back'}
+                >
+                  ← Back
+                </Button>
+              )}
+              <Button
+                onClick={handleAdvance}
+                variant="secondary"
+                disabled={!isAdmin}
+                title={isAdmin ? 'Advance to next step' : 'Only the admin can advance'}
+              >
+                {isAdmin ? 'Next Step →' : `Next Step (Admin: ${session.admin_participant_id?.slice(0,8) || 'none'})`}
+              </Button>
+            </div>
           )}
         </div>
 
@@ -311,24 +334,19 @@ export default function SessionView() {
       )}
 
       {session.status === 'voting_movies' && (
-        <MovieVoting session={session} participant={participant} />
+        <RankedMovieVoting session={session} participant={participant} />
       )}
 
       {session.status === 'selecting_location' && (
-        <LocationInput session={session} />
+        <LocationInput session={session} participant={participant} onAdvance={handleAdvance} />
       )}
 
       {session.status === 'viewing_showtimes' && (
-        <ShowtimeDisplay session={session} />
+        <ShowtimeDisplay session={session} participantId={participant?.id || null} />
       )}
 
       {session.status === 'completed' && (
-        <Card className="text-center">
-          <h3 className="text-xl font-bold mb-4">Movie Night Planned!</h3>
-          <p className="text-gray-400">
-            Your movie night has been coordinated. Check the showtimes above and enjoy!
-          </p>
-        </Card>
+        <CompletedSummary session={session} />
       )}
     </div>
   );

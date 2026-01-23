@@ -52,12 +52,37 @@ CREATE TABLE movie_options (
     UNIQUE(session_id, tmdb_id)
 );
 
--- Movie votes
+-- Movie votes with ranking support
 CREATE TABLE movie_votes (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     movie_option_id UUID REFERENCES movie_options(id) ON DELETE CASCADE,
     participant_id UUID REFERENCES participants(id) ON DELETE CASCADE,
+    rank INTEGER DEFAULT 1,
     UNIQUE(movie_option_id, participant_id)
+);
+
+-- Movie rankings for ranked choice voting (stores user's ranked picks)
+CREATE TABLE movie_rankings (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    session_id UUID REFERENCES sessions(id) ON DELETE CASCADE,
+    participant_id UUID REFERENCES participants(id) ON DELETE CASCADE,
+    tmdb_id INTEGER NOT NULL,
+    title VARCHAR(255) NOT NULL,
+    poster_path VARCHAR(255),
+    rank INTEGER NOT NULL,
+    UNIQUE(session_id, participant_id, rank)
+);
+
+-- Showtime votes (stores user's selected showtime)
+CREATE TABLE showtime_votes (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    session_id UUID REFERENCES sessions(id) ON DELETE CASCADE,
+    participant_id UUID REFERENCES participants(id) ON DELETE CASCADE,
+    theater_name VARCHAR(255) NOT NULL,
+    showtime VARCHAR(20) NOT NULL,
+    format VARCHAR(50) DEFAULT 'Standard',
+    created_at TIMESTAMP DEFAULT NOW(),
+    UNIQUE(session_id, participant_id)
 );
 
 -- Cached showtimes (with TTL)

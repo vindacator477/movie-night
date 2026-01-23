@@ -45,8 +45,9 @@ export default function MovieVoting({ session, participant }: Props) {
   const renderMovieCard = (movie: TMDbMovie, isInSession: boolean = false) => {
     const added = isMovieAdded(movie.id);
     const sessionMovie = session.movieOptions.find(m => m.tmdb_id === movie.id);
-    const hasVoted = sessionMovie?.votes.includes(participant.id) || false;
-    const voteCount = sessionMovie?.votes.length || 0;
+    const votes = sessionMovie?.votes || [];
+    const hasVoted = Array.isArray(votes) && votes.includes(participant.id);
+    const voteCount = Array.isArray(votes) ? votes.length : 0;
 
     return (
       <div
@@ -121,11 +122,16 @@ export default function MovieVoting({ session, participant }: Props) {
         <p className="text-gray-400 mb-4">
           Selected date:{' '}
           <span className="text-cinema-accent">
-            {new Date(session.selected_date + 'T00:00:00').toLocaleDateString('en-US', {
-              weekday: 'long',
-              month: 'long',
-              day: 'numeric',
-            })}
+            {(() => {
+              const normalizedDate = session.selected_date.includes('T')
+                ? session.selected_date.split('T')[0]
+                : session.selected_date;
+              return new Date(normalizedDate + 'T00:00:00').toLocaleDateString('en-US', {
+                weekday: 'long',
+                month: 'long',
+                day: 'numeric',
+              });
+            })()}
           </span>
         </p>
       )}
@@ -170,7 +176,11 @@ export default function MovieVoting({ session, participant }: Props) {
           {session.movieOptions.length > 0 ? (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
               {session.movieOptions
-                .sort((a, b) => (b.votes?.length || 0) - (a.votes?.length || 0))
+                .sort((a, b) => {
+                  const aVotes = Array.isArray(a.votes) ? a.votes.length : 0;
+                  const bVotes = Array.isArray(b.votes) ? b.votes.length : 0;
+                  return bVotes - aVotes;
+                })
                 .map(movie =>
                   renderMovieCard(
                     {

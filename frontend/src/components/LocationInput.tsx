@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Session } from '../types';
+import { Session, Participant } from '../types';
 import { useSession } from '../hooks/useSession';
 import { useTheaters } from '../hooks/useMovies';
 import Card from './ui/Card';
@@ -7,9 +7,12 @@ import Button from './ui/Button';
 
 interface Props {
   session: Session;
+  participant: Participant;
+  onAdvance: () => void;
 }
 
-export default function LocationInput({ session }: Props) {
+export default function LocationInput({ session, participant, onAdvance }: Props) {
+  const isAdmin = participant && session?.admin_participant_id === participant.id;
   const [zip, setZip] = useState(session.location_zip || '');
   const [city, setCity] = useState(session.location_city || '');
   const [searchType, setSearchType] = useState<'zip' | 'city'>('zip');
@@ -45,11 +48,16 @@ export default function LocationInput({ session }: Props) {
             <span className="text-cinema-accent">{selectedMovie.title}</span>
             {' on '}
             <span className="text-cinema-accent">
-              {new Date(session.selected_date + 'T00:00:00').toLocaleDateString('en-US', {
-                weekday: 'long',
-                month: 'long',
-                day: 'numeric',
-              })}
+              {(() => {
+                const normalizedDate = session.selected_date.includes('T')
+                  ? session.selected_date.split('T')[0]
+                  : session.selected_date;
+                return new Date(normalizedDate + 'T00:00:00').toLocaleDateString('en-US', {
+                  weekday: 'long',
+                  month: 'long',
+                  day: 'numeric',
+                });
+              })()}
             </span>
           </p>
         </div>
@@ -121,12 +129,17 @@ export default function LocationInput({ session }: Props) {
       ) : theaters && theaters.length > 0 ? (
         <div className="space-y-3">
           <h4 className="font-medium text-gray-300">
-            Theaters near {session.location_city || session.location_zip}:
+            {isAdmin ? 'Click a theater to see showtimes:' : `Theaters near ${session.location_city || session.location_zip}:`}
           </h4>
           {theaters.map((theater, index) => (
             <div
               key={index}
-              className="p-4 bg-gray-800 rounded-lg flex items-center justify-between"
+              onClick={() => isAdmin && onAdvance()}
+              className={`p-4 bg-gray-800 rounded-lg flex items-center justify-between transition-all ${
+                isAdmin
+                  ? 'cursor-pointer hover:bg-gray-700 hover:ring-2 hover:ring-cinema-accent'
+                  : ''
+              }`}
             >
               <div>
                 <p className="font-medium">{theater.name}</p>
@@ -141,6 +154,13 @@ export default function LocationInput({ session }: Props) {
                   {theater.chain === 'megaplex' ? 'Megaplex' : 'Cinemark'}
                 </span>
               </div>
+              {isAdmin && (
+                <div className="text-cinema-accent">
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -177,6 +197,25 @@ export default function LocationInput({ session }: Props) {
           ))}
         </div>
       </div>
+
+      {/* Continue button - shown when location is set */}
+      {(session.location_zip || session.location_city) && (
+        <div className="mt-6 pt-6 border-t border-gray-700">
+          <Button
+            onClick={onAdvance}
+            variant="primary"
+            className="w-full"
+            disabled={!isAdmin}
+          >
+            {isAdmin ? 'Continue to Showtimes →' : 'Waiting for admin to continue...'}
+          </Button>
+          {!isAdmin && (
+            <p className="text-xs text-gray-500 mt-2 text-center">
+              Only the session admin can proceed to the next step.
+            </p>
+          )}
+        </div>
+      )}
     </Card>
   );
 }

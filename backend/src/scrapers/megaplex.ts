@@ -17,7 +17,7 @@ export class MegaplexScraper extends BaseScraper {
       const dateStr = this.formatDate(date);
       const url = `${this.baseUrl}/showtimes?date=${dateStr}`;
 
-      await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 });
+      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
 
       // Wait for content to load
       await page.waitForTimeout(2000);
@@ -98,7 +98,7 @@ export class MegaplexScraper extends BaseScraper {
       if (results.length === 0) {
         // Try searching for the movie directly
         const searchUrl = `${this.baseUrl}/movies`;
-        await page.goto(searchUrl, { waitUntil: 'networkidle', timeout: 30000 });
+        await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
 
         const movieLinks = await page.$$('a[href*="/movies/"]');
 
@@ -108,8 +108,8 @@ export class MegaplexScraper extends BaseScraper {
             const href = await link.getAttribute('href');
             if (href) {
               await page.goto(`${this.baseUrl}${href}?date=${dateStr}`, {
-                waitUntil: 'networkidle',
-                timeout: 30000
+                waitUntil: 'domcontentloaded',
+                timeout: 60000
               });
 
               // Parse movie page for showtimes

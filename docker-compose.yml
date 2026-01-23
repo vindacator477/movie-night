@@ -30,12 +30,11 @@ services:
       NODE_ENV: ${NODE_ENV:-development}
       DATABASE_URL: postgresql://${POSTGRES_USER:-movienight}:${POSTGRES_PASSWORD:-movienight123}@postgres:5432/${POSTGRES_DB:-movienight}
       TMDB_API_KEY: ${TMDB_API_KEY}
+      GRACENOTE_API_KEY: ${GRACENOTE_API_KEY}
       GOOGLE_PLACES_API_KEY: ${GOOGLE_PLACES_API_KEY}
       API_PORT: 3001
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
       SHOWTIME_CACHE_TTL_HOURS: ${SHOWTIME_CACHE_TTL_HOURS:-6}
-      SCRAPE_RATE_LIMIT_MS: ${SCRAPE_RATE_LIMIT_MS:-2000}
-      MAX_CONCURRENT_SCRAPES: ${MAX_CONCURRENT_SCRAPES:-2}
     ports:
       - "3001:3001"
     depends_on:

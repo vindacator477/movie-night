@@ -36,6 +36,11 @@ export function useSession(sessionId: string | null) {
     onSuccess: () => invalidateSession(),
   });
 
+  const goBackSessionMutation = useMutation({
+    mutationFn: (participantId: string) => api.goBackSession(sessionId!, participantId),
+    onSuccess: () => invalidateSession(),
+  });
+
   const setLocationMutation = useMutation({
     mutationFn: ({ zip, city }: { zip?: string; city?: string }) =>
       api.setSessionLocation(sessionId!, zip, city),
@@ -92,6 +97,7 @@ export function useSession(sessionId: string | null) {
     createSession: createSessionMutation.mutateAsync,
     joinSession: joinSessionMutation.mutateAsync,
     advanceSession: advanceSessionMutation.mutateAsync,
+    goBackSession: goBackSessionMutation.mutateAsync,
     setLocation: setLocationMutation.mutateAsync,
     addDates: addDatesMutation.mutateAsync,
     voteForDate: voteForDateMutation.mutateAsync,

@@ -33,7 +33,7 @@ export class CinemarkScraper extends BaseScraper {
         const dateStr = this.formatDate(date);
         const url = `${this.baseUrl}/theatres/${theater.slug}?showDate=${dateStr}`;
 
-        await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 });
+        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
         await page.waitForTimeout(2000);
 
         // Look for movie sections

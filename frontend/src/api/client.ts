@@ -44,6 +44,12 @@ export const advanceSession = (id: string, participantId: string) =>
     body: JSON.stringify({ participantId }),
   });
 
+export const goBackSession = (id: string, participantId: string) =>
+  fetchApi<import('../types').Session>(`/sessions/${id}/goback`, {
+    method: 'PATCH',
+    body: JSON.stringify({ participantId }),
+  });
+
 export const setSessionLocation = (id: string, zip?: string, city?: string) =>
   fetchApi<import('../types').Session>(`/sessions/${id}/location`, {
     method: 'PATCH',
@@ -98,6 +104,28 @@ export const removeVoteForMovie = (sessionId: string, movieId: string, participa
     body: JSON.stringify({ participantId }),
   });
 
+// Ranked choice voting
+export const submitRankings = (
+  sessionId: string,
+  participantId: string,
+  rankings: Array<{ tmdbId: number; title: string; posterPath: string | null; rank: number }>
+) =>
+  fetchApi(`/sessions/${sessionId}/rankings`, {
+    method: 'POST',
+    body: JSON.stringify({ participantId, rankings }),
+  });
+
+export const getRankings = (sessionId: string) =>
+  fetchApi<Record<string, Array<{ tmdb_id: number; title: string; poster_path: string; rank: number }>>>(
+    `/sessions/${sessionId}/rankings`
+  );
+
+export const getRankingsWinner = (sessionId: string) =>
+  fetchApi<{
+    winner: { tmdb_id: number; title: string; poster_path: string } | null;
+    rounds: Array<{ counts: Record<number, number>; eliminated?: number }>;
+  }>(`/sessions/${sessionId}/rankings/winner`);
+
 // Movies (TMDb)
 export const getNowPlaying = (page: number = 1) =>
   fetchApi<import('../types').TMDbResponse>(`/movies/now-playing?page=${page}`);
@@ -119,11 +147,39 @@ export const searchTheaters = (zip?: string, city?: string) =>
 export const getShowtimes = (params: {
   movie: string;
   date: string;
+  zip?: string;
   theater?: string;
   chain?: string;
 }) =>
   fetchApi<import('../types').ShowtimeResult[]>(
     `/showtimes?movie=${encodeURIComponent(params.movie)}&date=${params.date}${
-      params.theater ? `&theater=${encodeURIComponent(params.theater)}` : ''
+      params.zip ? `&zip=${params.zip}` : ''
+    }${params.theater ? `&theater=${encodeURIComponent(params.theater)}` : ''
     }${params.chain ? `&chain=${params.chain}` : ''}`
   );
+
+// Showtime voting
+export const voteForShowtime = (
+  sessionId: string,
+  participantId: string,
+  theaterName: string,
+  showtime: string,
+  format: string
+) =>
+  fetchApi(`/sessions/${sessionId}/showtimes/vote`, {
+    method: 'POST',
+    body: JSON.stringify({ participantId, theaterName, showtime, format }),
+  });
+
+export const getShowtimeVotes = (sessionId: string) =>
+  fetchApi<{
+    votes: Array<{ participant_id: string; theater_name: string; showtime: string; format: string }>;
+    voteCounts: Array<{ theaterName: string; showtime: string; format: string; count: number; voters: string[] }>;
+    winner: { theaterName: string; showtime: string; format: string; count: number; voters: string[] } | null;
+  }>(`/sessions/${sessionId}/showtimes/votes`);
+
+export const removeShowtimeVote = (sessionId: string, participantId: string) =>
+  fetchApi(`/sessions/${sessionId}/showtimes/vote`, {
+    method: 'DELETE',
+    body: JSON.stringify({ participantId }),
+  });

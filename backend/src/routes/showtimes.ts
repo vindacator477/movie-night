@@ -1,78 +1,67 @@
 import { Router, Request, Response } from 'express';
-import { MegaplexScraper } from '../scrapers/megaplex.js';
-import { CinemarkScraper } from '../scrapers/cinemark.js';
+import { GracenoteService } from '../services/gracenote.js';
 import { CacheService } from '../services/cache.js';
-import { ShowtimeResult } from '../models/index.js';
 
 const router = Router();
-const megaplexScraper = new MegaplexScraper();
-const cinemarkScraper = new CinemarkScraper();
 const cacheService = new CacheService();
+
+// Initialize Gracenote service with API key from environment
+const gracenoteApiKey = process.env.GRACENOTE_API_KEY || '';
+const gracenoteService = new GracenoteService(gracenoteApiKey);
 
 // Get showtimes
 router.get('/', async (req: Request, res: Response) => {
   try {
-    const { theater, movie, date, chain } = req.query;
+    const { movie, date, zip } = req.query;
 
     if (!movie || !date) {
       return res.status(400).json({ error: 'Movie and date are required' });
     }
 
+    if (!gracenoteApiKey) {
+      console.error('GRACENOTE_API_KEY not configured');
+      return res.status(500).json({ error: 'Showtime service not configured' });
+    }
+
     const movieTitle = movie as string;
     const showtimeDate = new Date(date as string);
-    const theaterChain = chain as string | undefined;
-    const theaterName = theater as string | undefined;
+    const zipCode = (zip as string) || '84101'; // Default to Salt Lake City
 
     // Check cache first
+    const cacheKey = `gracenote:${movieTitle}:${showtimeDate.toISOString().split('T')[0]}:${zipCode}`;
     const cached = await cacheService.getShowtimes(
-      theaterChain || 'all',
-      theaterName || 'all',
+      'gracenote',
+      zipCode,
       movieTitle,
       showtimeDate
     );
 
     if (cached) {
-      return res.json(cached);
+      console.log(`Cache hit for "${movieTitle}" showtimes`);
+      return res.json(Array.isArray(cached) ? cached : [cached]);
     }
 
-    const results: ShowtimeResult[] = [];
+    console.log(`Fetching showtimes for "${movieTitle}" on ${showtimeDate.toISOString().split('T')[0]} near ${zipCode}`);
 
-    // Scrape from requested chain or all chains
-    if (!theaterChain || theaterChain === 'megaplex') {
-      try {
-        const megaplexResults = await megaplexScraper.getShowtimes({
-          movieTitle,
-          date: showtimeDate,
-          theaterName,
-        });
-        results.push(...megaplexResults);
-      } catch (err) {
-        console.error('Megaplex scraping error:', err);
-      }
-    }
-
-    if (!theaterChain || theaterChain === 'cinemark') {
-      try {
-        const cinemarkResults = await cinemarkScraper.getShowtimes({
-          movieTitle,
-          date: showtimeDate,
-          theaterName,
-        });
-        results.push(...cinemarkResults);
-      } catch (err) {
-        console.error('Cinemark scraping error:', err);
-      }
-    }
+    // Fetch from Gracenote API
+    const results = await gracenoteService.getShowtimes({
+      movieTitle,
+      date: showtimeDate,
+      zip: zipCode,
+      radius: 30,
+    });
 
     // Cache results
-    for (const result of results) {
-      await cacheService.setShowtimes(
-        theaterChain || 'all',
-        result.theaterName,
-        movieTitle,
-        showtimeDate,
-        result
-      );
+    if (results.length > 0) {
+      for (const result of results) {
+        await cacheService.setShowtimes(
+          'gracenote',
+          result.theaterName,
+          movieTitle,
+          showtimeDate,
+          result
+        );
+      }
     }
 
     res.json(results);

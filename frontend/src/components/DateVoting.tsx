@@ -41,7 +41,9 @@ export default function DateVoting({ session, participant }: Props) {
   };
 
   const formatDate = (dateStr: string) => {
-    const date = new Date(dateStr + 'T00:00:00');
+    // Normalize date string - extract YYYY-MM-DD if it's a full ISO datetime
+    const normalizedDate = dateStr.includes('T') ? dateStr.split('T')[0] : dateStr;
+    const date = new Date(normalizedDate + 'T00:00:00');
     return date.toLocaleDateString('en-US', {
       weekday: 'short',
       month: 'short',
@@ -100,8 +102,9 @@ export default function DateVoting({ session, participant }: Props) {
             {session.dateOptions
               .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
               .map(dateOption => {
-                const hasVoted = dateOption.votes.includes(participant.id);
-                const voteCount = dateOption.votes.length;
+                const votes = Array.isArray(dateOption.votes) ? dateOption.votes : [];
+                const hasVoted = votes.includes(participant.id);
+                const voteCount = votes.length;
 
                 return (
                   <div
@@ -140,9 +143,9 @@ export default function DateVoting({ session, participant }: Props) {
                     </div>
 
                     {/* Show who voted */}
-                    {dateOption.votes.length > 0 && (
+                    {voteCount > 0 && (
                       <div className="mt-2 flex flex-wrap gap-1 pl-9">
-                        {dateOption.votes.map(voterId => {
+                        {votes.map(voterId => {
                           const voter = session.participants.find(p => p.id === voterId);
                           return (
                             <span

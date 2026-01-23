@@ -35,6 +35,7 @@ export function useTheaters(zip?: string, city?: string) {
 export function useShowtimes(params: {
   movie: string;
   date: string;
+  zip?: string;
   theater?: string;
   chain?: string;
 } | null) {

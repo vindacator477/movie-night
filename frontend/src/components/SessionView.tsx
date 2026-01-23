@@ -49,16 +49,22 @@ export default function SessionView() {
     }
   }, [sessionId]);
 
-  // Verify participant is still valid
+  // Verify participant is still valid (only after initial load, not during join)
+  const [hasJoinedThisSession, setHasJoinedThisSession] = useState(false);
+
   useEffect(() => {
+    // Skip verification if we just joined (prevents race condition)
+    if (hasJoinedThisSession) return;
+
     if (session && participant) {
       const found = session.participants.find(p => p.id === participant.id);
       if (!found) {
+        console.log('Participant not found in session, clearing:', participant.id);
         localStorage.removeItem(`${PARTICIPANT_KEY}-${sessionId}`);
         setParticipant(null);
       }
     }
-  }, [session, participant, sessionId]);
+  }, [session, participant, sessionId, hasJoinedThisSession]);
 
   const handleJoin = async () => {
     if (!joinName.trim() || !sessionId) return;
@@ -68,6 +74,7 @@ export default function SessionView() {
 
     try {
       const newParticipant = await joinSession({ name: joinName.trim() });
+      setHasJoinedThisSession(true); // Prevent verification from clearing during race condition
       setParticipant(newParticipant);
       localStorage.setItem(
         `${PARTICIPANT_KEY}-${sessionId}`,

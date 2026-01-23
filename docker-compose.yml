@@ -1,0 +1,71 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: movienight-db
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-movienight}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-movienight123}
+      POSTGRES_DB: ${POSTGRES_DB:-movienight}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-movienight}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - movienight-network
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: movienight-api
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-movienight}:${POSTGRES_PASSWORD:-movienight123}@postgres:5432/${POSTGRES_DB:-movienight}
+      TMDB_API_KEY: ${TMDB_API_KEY}
+      GOOGLE_PLACES_API_KEY: ${GOOGLE_PLACES_API_KEY}
+      API_PORT: 3001
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
+      SHOWTIME_CACHE_TTL_HOURS: ${SHOWTIME_CACHE_TTL_HOURS:-6}
+      SCRAPE_RATE_LIMIT_MS: ${SCRAPE_RATE_LIMIT_MS:-2000}
+      MAX_CONCURRENT_SCRAPES: ${MAX_CONCURRENT_SCRAPES:-2}
+    ports:
+      - "3001:3001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - movienight-network
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:3001}
+    container_name: movienight-web
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    networks:
+      - movienight-network
+
+volumes:
+  postgres_data:
+
+networks:
+  movienight-network:
+    driver: bridge

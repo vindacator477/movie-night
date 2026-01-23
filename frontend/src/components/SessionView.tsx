@@ -221,9 +221,14 @@ export default function SessionView() {
             </p>
           </div>
 
-          {isAdmin && session.status !== 'completed' && (
-            <Button onClick={handleAdvance} variant="secondary">
-              Next Step →
+          {session.status !== 'completed' && (
+            <Button
+              onClick={handleAdvance}
+              variant="secondary"
+              disabled={!isAdmin}
+              title={isAdmin ? 'Advance to next step' : 'Only the admin can advance'}
+            >
+              {isAdmin ? 'Next Step →' : `Next Step (Admin: ${session.admin_participant_id?.slice(0,8) || 'none'})`}
             </Button>
           )}
         </div>

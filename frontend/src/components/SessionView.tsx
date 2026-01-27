@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import { useSession } from '../hooks/useSession';
 import { useSocket } from '../hooks/useSocket';
-import { Participant } from '../types';
+import { Participant, Session } from '../types';
 import Card from './ui/Card';
 import Button from './ui/Button';
 import DateVoting from './DateVoting';
@@ -30,7 +30,7 @@ export default function SessionView() {
     joinSession,
     advanceSession,
     goBackSession,
-  } = useSession(resolvedSessionId);
+  } = useSession(resolvedSessionId || undefined);
 
   // Socket connection for real-time updates
   const handleUpdate = useCallback(() => {
@@ -58,8 +58,8 @@ export default function SessionView() {
     const resolveSession = async () => {
       if (roomCode && !sessionId) {
         try {
-          const session = await getSessionByCode(roomCode);
-          setResolvedSessionId(session.id);
+          const sess = await getSessionByCode(roomCode);
+          setResolvedSessionId(sess.id);
         } catch (err) {
           console.error('Failed to resolve room code:', err);
         }
@@ -78,7 +78,7 @@ export default function SessionView() {
     if (hasJoinedThisSession) return;
 
     if (session && participant) {
-      const found = session.participants.find(p => p.id === participant.id);
+      const found = session.participants?.find(p => p.id === participant.id);
       if (!found) {
         localStorage.removeItem(`${PARTICIPANT_KEY}-${resolvedSessionId}`);
         setParticipant(null);
@@ -128,7 +128,6 @@ export default function SessionView() {
   const [copied, setCopied] = useState(false);
 
   const copyShareLink = () => {
-    // Build share URL with room code
     const baseUrl = window.location.origin;
     const shareUrl = session?.room_code
       ? `${baseUrl}/join/${session.room_code}`
@@ -140,30 +139,12 @@ export default function SessionView() {
 
   const isAdmin = participant && session?.admin_participant_id === participant.id;
 
-  // Debug logging
-  console.log('Session admin check:', {
-    participantId: participant?.id,
-    adminId: session?.admin_participant_id,
-    isAdmin,
-    sessionStatus: session?.status
-  });
-
-  if (isLoading || (!session && !error && !roomCode)) {
+  // Loading states
+  if (isLoading || (!session && !error && !roomCode && !resolvedSessionId)) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
         <div className="text-gray-400">Loading session...</div>
       </div>
-    );
-  }
-
-  if (error || (!session && resolvedSessionId)) {
-    return (
-      <Card className="max-w-lg mx-auto text-center">
-        <h2 className="text-xl font-bold text-red-400 mb-4">Session Not Found</h2>
-        <p className="text-gray-400">
-          This session may have expired or doesn't exist.
-        </p>
-      </Card>
     );
   }
 
@@ -175,6 +156,35 @@ export default function SessionView() {
       </div>
     );
   }
+
+  // Session not found
+  if (error || (!session && resolvedSessionId)) {
+    return (
+      <Card className="max-w-lg mx-auto text-center">
+        <h2 className="text-xl font-bold text-red-400 mb-4">Session Not Found</h2>
+        <p className="text-gray-400">
+          This session may have expired or doesn't exist.
+        </p>
+      </Card>
+    );
+  }
+
+  // Still loading session data
+  if (!session) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="text-gray-400">Loading session...</div>
+      </div>
+    );
+  }
+
+  const statusLabels: Record<string, string> = {
+    voting_dates: 'Voting on Dates',
+    voting_movies: 'Voting on Movies',
+    selecting_location: 'Selecting Location',
+    viewing_showtimes: 'Viewing Showtimes',
+    completed: 'Completed',
+  };
 
   if (!participant) {
     return (
@@ -211,13 +221,13 @@ export default function SessionView() {
           </Button>
         </div>
 
-        {session.participants.length > 0 && (
+        {session.participants && session.participants.length > 0 && (
           <div className="mt-6 pt-6 border-t border-gray-700">
             <p className="text-sm text-gray-400 mb-2">
               {session.participants.length} participant{session.participants.length !== 1 ? 's' : ''} already joined:
             </p>
             <div className="flex flex-wrap gap-2">
-              {session.participants.map(p => (
+              {session.participants.map((p: Participant) => (
                 <span key={p.id} className="px-2 py-1 bg-gray-700 rounded text-sm">
                   {p.name}
                 </span>
@@ -229,14 +239,6 @@ export default function SessionView() {
     );
   }
 
-  const statusLabels: Record<string, string> = {
-    voting_dates: 'Voting on Dates',
-    voting_movies: 'Voting on Movies',
-    selecting_location: 'Selecting Location',
-    viewing_showtimes: 'Viewing Showtimes',
-    completed: 'Completed',
-  };
-
   return (
     <div className="space-y-6">
       {/* Share Banner */}
@@ -247,7 +249,7 @@ export default function SessionView() {
             <div className="flex items-center gap-2">
               <span className="text-xs text-gray-400">Room Code:</span>
               <code className="bg-gray-800 px-3 py-1 rounded text-lg font-mono text-cinema-accent">
-                {session.room_code || 'M??? '}
+                {session.room_code || '???? '}
               </code>
             </div>
             <p className="text-xs text-gray-500 mt-1">or share invite link:</p>
@@ -290,7 +292,7 @@ export default function SessionView() {
                 disabled={!isAdmin}
                 title={isAdmin ? 'Advance to next step' : 'Only the admin can advance'}
               >
-                {isAdmin ? 'Next Step →' : `Next Step (Admin: ${session.admin_participant_id?.slice(0,8) || 'none'})`}
+                {isAdmin ? 'Next Step →' : 'Next Step (Admin)'}
               </Button>
             </div>
           )}
@@ -299,10 +301,10 @@ export default function SessionView() {
         {/* Participants */}
         <div className="mt-4 pt-4 border-t border-gray-700">
           <p className="text-sm text-gray-400 mb-2">
-            Participants ({session.participants.length}/20):
+            Participants ({session.participants?.length || 0}/20):
           </p>
           <div className="flex flex-wrap gap-2">
-            {session.participants.map(p => {
+            {session.participants?.map((p: Participant) => {
               const isParticipantAdmin = p.id === session.admin_participant_id;
               const isYou = p.id === participant.id;
               return (

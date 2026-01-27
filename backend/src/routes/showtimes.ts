@@ -48,7 +48,7 @@ router.get('/', async (req: Request, res: Response) => {
       movieTitle,
       date: showtimeDate,
       zip: zipCode,
-      radius: 30,
+      radius: 10,
     });
 
     // Cache results

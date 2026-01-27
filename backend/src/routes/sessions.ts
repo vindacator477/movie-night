@@ -3,21 +3,87 @@ import { query } from '../config/database.js';
 import { v4 as uuidv4 } from 'uuid';
 import { Session, Participant, DateOption, MovieOption, SessionStatus } from '../models/index.js';
 import { Server } from 'socket.io';
+import { generateRoomCode, getUniqueRoomCode, isValidRoomCode } from './roomCode.js';
 
 const router = Router();
 
-// Create new session
+// Create new session (legacy - still used but we'll also auto-create on join)
 router.post('/', async (req: Request, res: Response) => {
   try {
     const { name } = req.body;
+    const roomCode = await getUniqueRoomCode(query);
     const result = await query<Session>(
-      'INSERT INTO sessions (name) VALUES ($1) RETURNING *',
-      [name || null]
+      'INSERT INTO sessions (name, room_code) VALUES ($1, $2) RETURNING *',
+      [name || null, roomCode]
     );
     res.status(201).json(result.rows[0]);
   } catch (error) {
     console.error('Error creating session:', error);
     res.status(500).json({ error: 'Failed to create session' });
+  }
+});
+
+// Get session by room code
+router.get('/code/:code', async (req: Request, res: Response) => {
+  try {
+    const { code } = req.params;
+    
+    if (!isValidRoomCode(code)) {
+      return res.status(400).json({ error: 'Invalid room code format' });
+    }
+
+    const sessionResult = await query<Session>(
+      'SELECT * FROM sessions WHERE room_code = $1',
+      [code.toUpperCase()]
+    );
+
+    if (sessionResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+
+    // Get full session details (same as GET /:id)
+    const session = sessionResult.rows[0];
+    const sessionId = session.id;
+
+    // Get participants
+    const participantsResult = await query<Participant>(
+      'SELECT * FROM participants WHERE session_id = $1 ORDER BY created_at',
+      [sessionId]
+    );
+
+    // Get date options with votes
+    const dateOptionsResult = await query<DateOption & { votes: string[] }>(
+      `SELECT d.*,
+        COALESCE(array_agg(dv.participant_id) FILTER (WHERE dv.participant_id IS NOT NULL), '{}') as votes
+       FROM date_options d
+       LEFT JOIN date_votes dv ON d.id = dv.date_option_id
+       WHERE d.session_id = $1
+       GROUP BY d.id
+       ORDER BY d.date`,
+      [sessionId]
+    );
+
+    // Get movie options with votes
+    const movieOptionsResult = await query<MovieOption & { votes: string[] }>(
+      `SELECT m.*,
+        COALESCE(array_agg(mv.participant_id) FILTER (WHERE mv.participant_id IS NOT NULL), '{}') as votes
+       FROM movie_options m
+       LEFT JOIN movie_votes mv ON m.id = mv.movie_option_id
+       WHERE m.session_id = $1
+       GROUP BY m.id
+       ORDER BY m.title`,
+      [sessionId]
+    );
+
+    res.json({
+      ...session,
+      participants: participantsResult.rows,
+      dateOptions: dateOptionsResult.rows,
+      movieOptions: movieOptionsResult.rows,
+    });
+  } catch (error) {
+    console.error('Error getting session by code:', error);
+    res.status(500).json({ error: 'Failed to get session' });
   }
 });
 
@@ -79,30 +145,59 @@ router.get('/:id', async (req: Request, res: Response) => {
   }
 });
 
-// Join session
-router.post('/:id/join', async (req: Request, res: Response) => {
+// Join session (also creates session if it doesn't exist - for first user auto-create)
+router.post('/join', async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
-    const { name } = req.body;
+    const { sessionId, roomCode, name } = req.body;
 
+    // Validate input
     if (!name || name.trim().length === 0) {
       return res.status(400).json({ error: 'Name is required' });
     }
 
-    // Check session exists
-    const sessionResult = await query<Session>(
-      'SELECT * FROM sessions WHERE id = $1',
-      [id]
-    );
+    let session: Session | null = null;
+    let isNewSession = false;
 
-    if (sessionResult.rows.length === 0) {
+    // Try to find session by ID or room code
+    if (sessionId) {
+      const sessionResult = await query<Session>(
+        'SELECT * FROM sessions WHERE id = $1',
+        [sessionId]
+      );
+      if (sessionResult.rows.length > 0) {
+        session = sessionResult.rows[0];
+      }
+    } else if (roomCode) {
+      const code = roomCode.toUpperCase();
+      if (!isValidRoomCode(code)) {
+        return res.status(400).json({ error: 'Invalid room code format' });
+      }
+      const sessionResult = await query<Session>(
+        'SELECT * FROM sessions WHERE room_code = $1',
+        [code]
+      );
+      if (sessionResult.rows.length > 0) {
+        session = sessionResult.rows[0];
+      }
+    } else {
+      // No sessionId or roomCode provided - create new session
+      const roomCode = await getUniqueRoomCode(query);
+      const sessionResult = await query<Session>(
+        'INSERT INTO sessions (name, room_code, status) VALUES ($1, $2, $3) RETURNING *',
+        ['Movie Night', roomCode, 'voting_movies']
+      );
+      session = sessionResult.rows[0];
+      isNewSession = true;
+    }
+
+    if (!session) {
       return res.status(404).json({ error: 'Session not found' });
     }
 
     // Check participant limit (max 20)
     const countResult = await query<{ count: string }>(
       'SELECT COUNT(*) as count FROM participants WHERE session_id = $1',
-      [id]
+      [session.id]
     );
 
     if (parseInt(countResult.rows[0].count) >= 20) {
@@ -111,23 +206,28 @@ router.post('/:id/join', async (req: Request, res: Response) => {
 
     const result = await query<Participant>(
       'INSERT INTO participants (session_id, name) VALUES ($1, $2) RETURNING *',
-      [id, name.trim()]
+      [session.id, name.trim()]
     );
 
     const newParticipant = result.rows[0];
 
     // If no admin set yet, make this participant the admin (first joiner)
-    if (!sessionResult.rows[0].admin_participant_id) {
+    if (!session.admin_participant_id) {
       await query(
         'UPDATE sessions SET admin_participant_id = $1 WHERE id = $2',
-        [newParticipant.id, id]
+        [newParticipant.id, session.id]
       );
+      session.admin_participant_id = newParticipant.id;
     }
 
     const io: Server = req.app.get('io');
-    io.to(id).emit('participant_joined', newParticipant);
+    io.to(session.id).emit('participant_joined', newParticipant);
 
-    res.status(201).json(newParticipant);
+    res.status(201).json({
+      participant: newParticipant,
+      session: session,
+      isNewSession
+    });
   } catch (error) {
     console.error('Error joining session:', error);
     res.status(500).json({ error: 'Failed to join session' });

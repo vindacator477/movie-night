@@ -17,6 +17,7 @@ function App() {
         <Routes>
           <Route path="/" element={<CreateSession />} />
           <Route path="/session/:sessionId" element={<SessionView />} />
+          <Route path="/join/:roomCode" element={<SessionView />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>

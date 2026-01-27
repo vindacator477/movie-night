@@ -10,15 +10,17 @@ import RankedMovieVoting from './RankedMovieVoting';
 import LocationInput from './LocationInput';
 import ShowtimeDisplay from './ShowtimeDisplay';
 import CompletedSummary from './CompletedSummary';
+import { getSessionByCode } from '../api/client';
 
 const PARTICIPANT_KEY = 'movie-night-participant';
 
 export default function SessionView() {
-  const { sessionId } = useParams<{ sessionId: string }>();
+  const { sessionId, roomCode } = useParams<{ sessionId?: string; roomCode?: string }>();
   const [participant, setParticipant] = useState<Participant | null>(null);
   const [joinName, setJoinName] = useState('');
   const [isJoining, setIsJoining] = useState(false);
   const [joinError, setJoinError] = useState<string | null>(null);
+  const [resolvedSessionId, setResolvedSessionId] = useState<string | null>(null);
 
   const {
     session,
@@ -28,59 +30,75 @@ export default function SessionView() {
     joinSession,
     advanceSession,
     goBackSession,
-  } = useSession(sessionId || null);
+  } = useSession(resolvedSessionId);
 
   // Socket connection for real-time updates
   const handleUpdate = useCallback(() => {
     invalidateSession();
   }, [invalidateSession]);
 
-  useSocket(sessionId || null, handleUpdate);
+  useSocket(resolvedSessionId || null, handleUpdate);
 
   // Load participant from localStorage
   useEffect(() => {
-    if (sessionId) {
-      const stored = localStorage.getItem(`${PARTICIPANT_KEY}-${sessionId}`);
+    if (resolvedSessionId) {
+      const stored = localStorage.getItem(`${PARTICIPANT_KEY}-${resolvedSessionId}`);
       if (stored) {
         try {
           setParticipant(JSON.parse(stored));
         } catch {
-          localStorage.removeItem(`${PARTICIPANT_KEY}-${sessionId}`);
+          localStorage.removeItem(`${PARTICIPANT_KEY}-${resolvedSessionId}`);
         }
       }
     }
-  }, [sessionId]);
+  }, [resolvedSessionId]);
 
-  // Verify participant is still valid (only after initial load, not during join)
+  // Resolve room code to session ID
+  useEffect(() => {
+    const resolveSession = async () => {
+      if (roomCode && !sessionId) {
+        try {
+          const session = await getSessionByCode(roomCode);
+          setResolvedSessionId(session.id);
+        } catch (err) {
+          console.error('Failed to resolve room code:', err);
+        }
+      } else if (sessionId) {
+        setResolvedSessionId(sessionId);
+      }
+    };
+
+    resolveSession();
+  }, [sessionId, roomCode]);
+
+  // Verify participant is still valid
   const [hasJoinedThisSession, setHasJoinedThisSession] = useState(false);
 
   useEffect(() => {
-    // Skip verification if we just joined (prevents race condition)
     if (hasJoinedThisSession) return;
 
     if (session && participant) {
       const found = session.participants.find(p => p.id === participant.id);
       if (!found) {
-        console.log('Participant not found in session, clearing:', participant.id);
-        localStorage.removeItem(`${PARTICIPANT_KEY}-${sessionId}`);
+        localStorage.removeItem(`${PARTICIPANT_KEY}-${resolvedSessionId}`);
         setParticipant(null);
       }
     }
-  }, [session, participant, sessionId, hasJoinedThisSession]);
+  }, [session, participant, resolvedSessionId, hasJoinedThisSession]);
 
   const handleJoin = async () => {
-    if (!joinName.trim() || !sessionId) return;
+    if (!joinName.trim() || !resolvedSessionId) return;
 
     setIsJoining(true);
     setJoinError(null);
 
     try {
-      const newParticipant = await joinSession({ name: joinName.trim() });
-      setHasJoinedThisSession(true); // Prevent verification from clearing during race condition
-      setParticipant(newParticipant);
+      const result = await joinSession({ name: joinName.trim() });
+      setHasJoinedThisSession(true);
+      setParticipant(result.participant);
       localStorage.setItem(
-        `${PARTICIPANT_KEY}-${sessionId}`,
-        JSON.stringify(newParticipant)
+        `${PARTICIPANT_KEY}-${resolvedSessionId}`,
+        JSON.stringify(result.participant)
       );
     } catch (err) {
       setJoinError(err instanceof Error ? err.message : 'Failed to join');
@@ -110,8 +128,12 @@ export default function SessionView() {
   const [copied, setCopied] = useState(false);
 
   const copyShareLink = () => {
-    const url = window.location.href;
-    navigator.clipboard.writeText(url);
+    // Build share URL with room code
+    const baseUrl = window.location.origin;
+    const shareUrl = session?.room_code
+      ? `${baseUrl}/join/${session.room_code}`
+      : window.location.href;
+    navigator.clipboard.writeText(shareUrl);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
@@ -126,7 +148,7 @@ export default function SessionView() {
     sessionStatus: session?.status
   });
 
-  if (isLoading) {
+  if (isLoading || (!session && !error && !roomCode)) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
         <div className="text-gray-400">Loading session...</div>
@@ -134,7 +156,7 @@ export default function SessionView() {
     );
   }
 
-  if (error || !session) {
+  if (error || (!session && resolvedSessionId)) {
     return (
       <Card className="max-w-lg mx-auto text-center">
         <h2 className="text-xl font-bold text-red-400 mb-4">Session Not Found</h2>
@@ -142,6 +164,15 @@ export default function SessionView() {
           This session may have expired or doesn't exist.
         </p>
       </Card>
+    );
+  }
+
+  // Show loading while resolving room code
+  if (!resolvedSessionId && roomCode) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="text-gray-400">Joining session...</div>
+      </div>
     );
   }
 
@@ -212,12 +243,14 @@ export default function SessionView() {
       <Card className="bg-gradient-to-r from-cinema-accent/20 to-purple-900/20 border-cinema-accent/30">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <p className="text-sm text-gray-300 mb-1">Share this session with your friends:</p>
+            <p className="text-sm text-gray-300 mb-1">Share with friends:</p>
             <div className="flex items-center gap-2">
+              <span className="text-xs text-gray-400">Room Code:</span>
               <code className="bg-gray-800 px-3 py-1 rounded text-lg font-mono text-cinema-accent">
-                {sessionId}
+                {session.room_code || 'M??? '}
               </code>
             </div>
+            <p className="text-xs text-gray-500 mt-1">or share invite link:</p>
           </div>
           <Button
             onClick={copyShareLink}

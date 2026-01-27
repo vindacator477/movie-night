@@ -24,7 +24,7 @@ async function fetchApi<T>(
 
 // Sessions
 export const createSession = (name?: string) =>
-  fetchApi<{ id: string }>('/sessions', {
+  fetchApi<{ id: string; room_code: string }>('/sessions', {
     method: 'POST',
     body: JSON.stringify({ name }),
   });
@@ -32,10 +32,13 @@ export const createSession = (name?: string) =>
 export const getSession = (id: string) =>
   fetchApi<import('../types').Session>(`/sessions/${id}`);
 
-export const joinSession = (id: string, name: string) =>
-  fetchApi<import('../types').Participant>(`/sessions/${id}/join`, {
+export const getSessionByCode = (code: string) =>
+  fetchApi<import('../types').Session>(`/sessions/code/${code}`);
+
+export const joinSession = (sessionId?: string, roomCode?: string, name?: string) =>
+  fetchApi<{ participant: import('../types').Participant; session: import('../types').Session; isNewSession: boolean }>('/sessions/join', {
     method: 'POST',
-    body: JSON.stringify({ name }),
+    body: JSON.stringify({ sessionId, roomCode, name }),
   });
 
 export const advanceSession = (id: string, participantId: string) =>

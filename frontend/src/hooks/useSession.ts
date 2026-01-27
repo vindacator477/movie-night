@@ -27,8 +27,13 @@ export function useSession(sessionId: string | null) {
 
   const joinSessionMutation = useMutation({
     mutationFn: ({ name }: { name: string }) =>
-      api.joinSession(sessionId!, name),
-    onSuccess: () => invalidateSession(),
+      api.joinSession(undefined, undefined, name),
+    onSuccess: (data) => {
+      // Invalidate session query to refresh data
+      if (data.session?.id) {
+        queryClient.invalidateQueries({ queryKey: ['session', data.session.id] });
+      }
+    },
   });
 
   const advanceSessionMutation = useMutation({

@@ -3,6 +3,7 @@
 -- Sessions table
 CREATE TABLE sessions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    room_code VARCHAR(10) UNIQUE, -- Short room code like "M8X2"
     name VARCHAR(255),
     status VARCHAR(50) DEFAULT 'voting_dates',
     -- statuses: voting_dates, voting_movies, selecting_location, viewing_showtimes, completed

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Session, Participant } from '../types';
 import { useSession } from '../hooks/useSession';
 import { useTheaters } from '../hooks/useMovies';
@@ -22,6 +22,16 @@ export default function LocationInput({ session, participant, onAdvance }: Props
     searchType === 'zip' ? zip : undefined,
     searchType === 'city' ? city : undefined
   );
+
+  // Auto-search when city or zip changes (with debounce)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if ((searchType === 'zip' && zip.length === 5) || (searchType === 'city' && city.length > 0)) {
+        handleSearch();
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [zip, city, searchType]);
 
   const handleSearch = async () => {
     if (searchType === 'zip' && zip.length === 5) {

@@ -1,5 +1,6 @@
 export interface Session {
   id: string;
+  room_code: string | null;
   name: string | null;
   status: SessionStatus;
   admin_participant_id: string | null;

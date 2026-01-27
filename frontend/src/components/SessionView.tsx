@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import { useSession } from '../hooks/useSession';
 import { useSocket } from '../hooks/useSocket';
-import { Participant, Session } from '../types';
+import { Participant } from '../types';
 import Card from './ui/Card';
 import Button from './ui/Button';
 import DateVoting from './DateVoting';
@@ -30,7 +30,7 @@ export default function SessionView() {
     joinSession,
     advanceSession,
     goBackSession,
-  } = useSession(resolvedSessionId || undefined);
+  } = useSession(resolvedSessionId || null);
 
   // Socket connection for real-time updates
   const handleUpdate = useCallback(() => {

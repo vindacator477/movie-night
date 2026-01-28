@@ -36,6 +36,7 @@ export function useShowtimes(params: {
   movie: string;
   date: string;
   zip?: string;
+  city?: string;
   theater?: string;
   chain?: string;
 } | null) {

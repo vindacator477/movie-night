@@ -79,6 +79,7 @@ export default function ShowtimeDisplay({ session, participantId }: Props) {
           movie: selectedMovie.title,
           date: session.selected_date,
           zip: session.location_zip || undefined,
+          city: session.location_city || undefined,
           chain: selectedChain,
         }
       : null

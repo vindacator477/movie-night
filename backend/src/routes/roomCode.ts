@@ -29,7 +29,7 @@ export async function isRoomCodeAvailable(code: string, db: any, excludeSessionI
     params.push(excludeSessionId);
   }
   
-  const result = await db.query(query, params);
+  const result = await db(query, params);
   return parseInt(result.rows[0].count) === 0;
 }
 

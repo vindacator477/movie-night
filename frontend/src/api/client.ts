@@ -53,10 +53,10 @@ export const goBackSession = (id: string, participantId: string) =>
     body: JSON.stringify({ participantId }),
   });
 
-export const setSessionLocation = (id: string, zip?: string, city?: string) =>
+export const setSessionLocation = (id: string, zip?: string, city?: string, date?: string) =>
   fetchApi<import('../types').Session>(`/sessions/${id}/location`, {
     method: 'PATCH',
-    body: JSON.stringify({ zip, city }),
+    body: JSON.stringify({ zip, city, date }),
   });
 
 // Date voting
@@ -151,12 +151,14 @@ export const getShowtimes = (params: {
   movie: string;
   date: string;
   zip?: string;
+  city?: string;
   theater?: string;
   chain?: string;
 }) =>
   fetchApi<import('../types').ShowtimeResult[]>(
     `/showtimes?movie=${encodeURIComponent(params.movie)}&date=${params.date}${
       params.zip ? `&zip=${params.zip}` : ''
+    }${params.city ? `&city=${encodeURIComponent(params.city)}` : ''
     }${params.theater ? `&theater=${encodeURIComponent(params.theater)}` : ''
     }${params.chain ? `&chain=${params.chain}` : ''}`
   );

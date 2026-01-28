@@ -47,8 +47,8 @@ export function useSession(sessionId: string | null) {
   });
 
   const setLocationMutation = useMutation({
-    mutationFn: ({ zip, city }: { zip?: string; city?: string }) =>
-      api.setSessionLocation(sessionId!, zip, city),
+    mutationFn: ({ zip, city, date }: { zip?: string; city?: string; date?: string }) =>
+      api.setSessionLocation(sessionId!, zip, city, date),
     onSuccess: () => invalidateSession(),
   });
 

@@ -455,17 +455,17 @@ router.patch('/:id/goback', async (req: Request, res: Response) => {
   }
 });
 
-// Set location
+// Set location and date
 router.patch('/:id/location', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { zip, city } = req.body;
+    const { zip, city, date } = req.body;
 
     const result = await query<Session>(
       `UPDATE sessions
-       SET location_zip = $1, location_city = $2, updated_at = NOW()
-       WHERE id = $3 RETURNING *`,
-      [zip || null, city || null, id]
+       SET location_zip = $1, location_city = $2, selected_date = $3, updated_at = NOW()
+       WHERE id = $4 RETURNING *`,
+      [zip || null, city || null, date || null, id]
     );
 
     if (result.rows.length === 0) {

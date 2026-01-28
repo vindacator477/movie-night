@@ -22,6 +22,11 @@ export default function CreateSession() {
 
     try {
       const result = await joinSession(undefined, undefined, name);
+      // Save participant to localStorage so SessionView recognizes us
+      localStorage.setItem(
+        `movie-night-participant-${result.session.id}`,
+        JSON.stringify(result.participant)
+      );
       navigate(`/session/${result.session.id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to start session');
@@ -41,6 +46,11 @@ export default function CreateSession() {
 
     try {
       const result = await joinSession(undefined, roomCode.toUpperCase(), name || 'Guest');
+      // Save participant to localStorage so SessionView recognizes us
+      localStorage.setItem(
+        `movie-night-participant-${result.session.id}`,
+        JSON.stringify(result.participant)
+      );
       navigate(`/session/${result.session.id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to join session');

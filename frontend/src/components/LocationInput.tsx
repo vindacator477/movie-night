@@ -11,13 +11,29 @@ interface Props {
   onAdvance: () => void;
 }
 
+// Get next 2 days for date selection (Gracenote only has showtimes 1-2 days out)
+function getUpcomingDates(): { value: string; label: string }[] {
+  const dates = [];
+  for (let i = 0; i < 2; i++) {
+    const date = new Date();
+    date.setDate(date.getDate() + i);
+    const value = date.toISOString().split('T')[0];
+    dates.push({ value, label: i === 0 ? 'Today' : 'Tomorrow' });
+  }
+  return dates;
+}
+
 export default function LocationInput({ session, participant, onAdvance }: Props) {
   const isAdmin = participant && session?.admin_participant_id === participant.id;
   const [zip, setZip] = useState(session.location_zip || '');
   const [city, setCity] = useState(session.location_city || '');
   const [searchType, setSearchType] = useState<'zip' | 'city'>('zip');
+  const [selectedDate, setSelectedDate] = useState(
+    session.selected_date || new Date().toISOString().split('T')[0]
+  );
 
   const { setLocation } = useSession(session.id);
+  const upcomingDates = getUpcomingDates();
   const { data: theaters, isLoading, refetch } = useTheaters(
     searchType === 'zip' ? zip : undefined,
     searchType === 'city' ? city : undefined
@@ -35,10 +51,10 @@ export default function LocationInput({ session, participant, onAdvance }: Props
 
   const handleSearch = async () => {
     if (searchType === 'zip' && zip.length === 5) {
-      await setLocation({ zip });
+      await setLocation({ zip, date: selectedDate });
       refetch();
     } else if (searchType === 'city' && city.length > 0) {
-      await setLocation({ city });
+      await setLocation({ city, date: selectedDate });
       refetch();
     }
   };
@@ -74,8 +90,33 @@ export default function LocationInput({ session, participant, onAdvance }: Props
       )}
 
       <p className="text-gray-400 mb-6">
-        Enter your location to find Utah theaters near you.
+        Select a date and enter your location to find Utah theaters near you.
       </p>
+
+      {/* Date selection */}
+      <div className="mb-6">
+        <label className="block text-sm font-medium text-gray-300 mb-2">
+          When do you want to go?
+        </label>
+        <div className="flex flex-wrap gap-2">
+          {upcomingDates.map((date) => (
+            <button
+              key={date.value}
+              onClick={() => setSelectedDate(date.value)}
+              className={`px-4 py-2 rounded-lg text-sm transition-colors ${
+                selectedDate === date.value
+                  ? 'bg-cinema-accent text-white'
+                  : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+              }`}
+            >
+              {date.label}
+            </button>
+          ))}
+        </div>
+        <p className="text-xs text-gray-500 mt-2">
+          Showtimes are typically only available 1-2 days in advance.
+        </p>
+      </div>
 
       {/* Search type toggle */}
       <div className="flex gap-2 mb-4">

@@ -37,7 +37,7 @@ router.get('/', async (req: Request, res: Response) => {
 
     // Use a popular movie to get theater listings
     const results = await gracenoteService.getShowtimes({
-      movieTitle: 'Spider-Man', // Popular movie likely to be showing
+      movieTitle: 'Avatar', // Currently showing movie
       date: new Date(),
       zip: zipCode,
       radius: 10,

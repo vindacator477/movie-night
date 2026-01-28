@@ -130,19 +130,22 @@ export class MegaplexScraper {
         }
       });
 
-      // Navigate and wait for full page load
-      await page.goto(url, { waitUntil: 'networkidle', timeout: 60000 });
+      // Navigate with domcontentloaded (faster, avoids timeout)
+      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45000 });
 
-      // Wait for Angular to fully render
-      await page.waitForTimeout(5000);
+      // Wait for Angular to render content
+      await page.waitForTimeout(6000);
 
       // Try to select the correct date if not today
       await this.selectDate(page, date);
       await page.waitForTimeout(2000);
 
-      // Try to click on the movie to expand it and reveal showtimes
-      await this.clickOnMovie(page, movieTitle);
-      await page.waitForTimeout(3000);
+      // Find and click on the movie's "Preview Showtimes" button or the movie card
+      const clicked = await this.clickOnMovieShowtimes(page, movieTitle);
+      if (clicked) {
+        // Wait for showtimes to load after clicking
+        await page.waitForTimeout(4000);
+      }
 
       // Check intercepted API data
       for (const apiData of apiResponses) {
@@ -165,25 +168,61 @@ export class MegaplexScraper {
         // Debug: log the page structure
         console.log(`No showtimes found for "${movieTitle}" at ${theaterName}`);
         console.log(`Page title: ${await page.title()}`);
+        console.log(`Current URL: ${page.url()}`);
 
-        // Log what we can find on the page
-        const movieCount = await page.evaluate(`document.querySelectorAll('[class*="movie"], [class*="film"], article, .card').length`);
-        console.log(`Found ${movieCount} potential movie containers on page`);
-
-        // Log actual movie titles found
-        const titles = await page.evaluate(`
-          Array.from(document.querySelectorAll('h1, h2, h3, h4, h5, .title, [class*="title"], [class*="name"]'))
-            .map(el => el.textContent?.trim())
-            .filter(t => t && t.length > 2 && t.length < 100)
-            .slice(0, 15)
+        // Look for time patterns anywhere on the page
+        const timePatterns = await page.evaluate(`
+          (function() {
+            const text = document.body.innerText;
+            const matches = text.match(/\\d{1,2}:\\d{2}\\s*(?:AM|PM|am|pm)/gi) || [];
+            return matches.slice(0, 20);
+          })()
         `) as string[];
-        console.log(`Titles found on page: ${titles.join(' | ')}`);
+        console.log(`Time patterns found on page: ${timePatterns.join(', ') || 'NONE'}`);
 
-        // Try a more aggressive search - look for "Avatar" anywhere in text
-        const avatarMentions = await page.evaluate(`
-          document.body.innerText.toLowerCase().includes('avatar')
+        // Find elements containing times and log their details
+        const timeElements = await page.evaluate(`
+          (function() {
+            const results = [];
+            const allEls = document.querySelectorAll('*');
+            for (const el of allEls) {
+              const text = el.textContent?.trim() || '';
+              if (text.match(/\\d{1,2}:\\d{2}\\s*(?:AM|PM|am|pm)/i) && text.length < 100) {
+                results.push({
+                  tag: el.tagName,
+                  class: el.className?.substring?.(0, 50) || '',
+                  text: text.substring(0, 80)
+                });
+              }
+            }
+            return results.slice(0, 10);
+          })()
         `);
-        console.log(`Page contains 'avatar': ${avatarMentions}`);
+        console.log(`Elements with times: ${JSON.stringify(timeElements)}`);
+
+        // Look for all buttons with their text
+        const buttons = await page.evaluate(`
+          (function() {
+            return Array.from(document.querySelectorAll('button, a.btn, [role="button"]'))
+              .map(el => el.textContent?.trim().substring(0, 50))
+              .filter(t => t && t.length > 0)
+              .slice(0, 20);
+          })()
+        `) as string[];
+        console.log(`Buttons on page: ${buttons.join(' | ')}`);
+
+        // Check if showtimes section exists
+        const showtimeSection = await page.evaluate(`
+          (function() {
+            const text = document.body.innerText.toLowerCase();
+            const idx = text.indexOf('showtime');
+            if (idx >= 0) {
+              return text.substring(idx, Math.min(idx + 500, text.length));
+            }
+            return 'No showtime section found';
+          })()
+        `);
+        console.log(`Showtime section: ${showtimeSection}`);
 
         return null;
       }
@@ -305,21 +344,46 @@ export class MegaplexScraper {
     }
   }
 
-  private async clickOnMovie(page: Page, movieTitle: string): Promise<void> {
+  private async clickOnMovieShowtimes(page: Page, movieTitle: string): Promise<boolean> {
     const searchTerms = [
       movieTitle.toLowerCase(),
       movieTitle.split(':')[0].toLowerCase(), // "Avatar" from "Avatar: Fire and Ash"
     ];
 
     try {
-      // Look for clickable elements containing the movie title
+      // Strategy 1: Find a movie card containing our title and click its "Preview Showtimes" or similar button
+      for (const term of searchTerms) {
+        // Look for movie containers
+        const movieCards = await page.$$('[class*="movie"], [class*="card"], [class*="film"], article');
+
+        for (const card of movieCards) {
+          const cardText = await card.textContent();
+          if (cardText && cardText.toLowerCase().includes(term)) {
+            // Found a card with our movie - look for showtime button inside
+            const showtimeBtn = await card.$('button:has-text("Showtime"), a:has-text("Showtime"), button:has-text("Preview"), a:has-text("Preview")');
+            if (showtimeBtn) {
+              await showtimeBtn.click();
+              console.log(`Clicked showtime button in movie card for: ${term}`);
+              return true;
+            }
+            // No explicit showtime button, try clicking the card itself
+            try {
+              await card.click();
+              console.log(`Clicked movie card for: ${term}`);
+              return true;
+            } catch {
+              continue;
+            }
+          }
+        }
+      }
+
+      // Strategy 2: Direct link/button with movie title
       for (const term of searchTerms) {
         const selectors = [
-          `text="${term}"`,
           `a:has-text("${term}")`,
           `button:has-text("${term}")`,
-          `[class*="movie"]:has-text("${term}")`,
-          `[class*="card"]:has-text("${term}")`,
+          `text="${term}"`,
         ];
 
         for (const selector of selectors) {
@@ -328,87 +392,86 @@ export class MegaplexScraper {
             if (element) {
               await element.click();
               console.log(`Clicked on movie using: ${selector}`);
-              return;
+              return true;
             }
           } catch {
             continue;
           }
         }
       }
+
       console.log('Could not find movie element to click');
+      return false;
     } catch (error) {
       console.log('Error clicking movie:', error);
+      return false;
     }
   }
 
   private async scrapeDOM(page: Page, movieTitle: string): Promise<ScrapedShowtime[]> {
-    const escapedTitle = movieTitle.replace(/"/g, '\\"').toLowerCase();
-    // Get first word of movie title for partial matching (e.g., "Avatar")
-    const firstWord = escapedTitle.split(/[:\s]/)[0];
-
-    // Use string template to avoid TypeScript DOM issues
+    // Look for Megaplex-specific showtime elements
     const script = `
-      (function(search, firstWord) {
+      (function() {
         const results = [];
+        const seenTimes = new Set();
 
-        // Strategy 1: Find all elements containing the movie title text
-        const allText = document.body.innerText;
-        const titleIndex = allText.toLowerCase().indexOf(search);
-        const firstWordIndex = allText.toLowerCase().indexOf(firstWord);
+        // Strategy 1: Look for Megaplex showtime elements (mp-showing, time elements)
+        const showtimeEls = document.querySelectorAll('time, [class*="mp-showing"], [class*="showtime"], article[class*="showing"]');
+        for (const el of showtimeEls) {
+          const text = el.textContent?.trim() || '';
+          const timeMatch = text.match(/(\\d{1,2}:\\d{2}\\s*(?:AM|PM|am|pm))/i);
 
-        // Strategy 2: Look for sections/cards that contain the movie name
-        const allElements = document.querySelectorAll('*');
-        let movieSection = null;
+          if (timeMatch) {
+            const timeStr = timeMatch[1].toUpperCase();
+            if (seenTimes.has(timeStr)) continue;
+            seenTimes.add(timeStr);
 
-        for (const el of allElements) {
-          const text = el.textContent?.toLowerCase() || '';
-          if ((text.includes(search) || text.includes(firstWord)) &&
-              el.querySelectorAll('button, a').length > 0) {
-            // This element contains the movie name and has clickable elements
-            // Check if it's a reasonable container (not the whole page)
-            if (el.textContent.length < 5000) {
-              movieSection = el;
-              break;
+            // Determine format from context
+            let format = 'Standard';
+            const context = text.toLowerCase();
+            const parentContext = (el.closest('article, [class*="showing"]')?.textContent || '').toLowerCase();
+
+            if (context.includes('imax') || parentContext.includes('imax')) format = 'IMAX';
+            else if (context.includes('3d') || parentContext.includes('3d')) format = '3D';
+            else if (context.includes('dolby') || parentContext.includes('dolby')) format = 'Dolby';
+            else if (context.includes('atmos') || parentContext.includes('atmos')) format = 'Dolby Atmos';
+            else if (context.includes('luxury') || parentContext.includes('luxury')) format = 'Luxury';
+
+            results.push({ time: timeStr, format });
+          }
+        }
+
+        // Strategy 2: Also check buttons/links
+        if (results.length === 0) {
+          const buttons = document.querySelectorAll('button, a, [role="button"]');
+          for (const btn of buttons) {
+            const text = btn.textContent?.trim() || '';
+            const timeMatch = text.match(/(\\d{1,2}:\\d{2}\\s*(?:AM|PM|am|pm))/i);
+
+            if (timeMatch) {
+              const timeStr = timeMatch[1].toUpperCase();
+              if (seenTimes.has(timeStr)) continue;
+              seenTimes.add(timeStr);
+              results.push({ time: timeStr, format: 'Standard' });
             }
           }
         }
 
-        if (movieSection) {
-          // Find time patterns in this section
-          const sectionText = movieSection.textContent || '';
-          const timeMatches = sectionText.match(/(\\d{1,2}:\\d{2}\\s*(?:AM|PM|am|pm))/gi) || [];
+        // Strategy 3: Fallback - find any time patterns in page text
+        if (results.length === 0) {
+          const allText = document.body.innerText;
+          const timeMatches = allText.match(/(\\d{1,2}:\\d{2}\\s*(?:AM|PM|am|pm))/gi) || [];
 
           for (const timeStr of timeMatches) {
-            let format = 'Standard';
-            const textLower = sectionText.toLowerCase();
-
-            if (textLower.includes('imax')) format = 'IMAX';
-            else if (textLower.includes('3d')) format = '3D';
-            else if (textLower.includes('dolby')) format = 'Dolby';
-
-            results.push({
-              time: timeStr.toUpperCase(),
-              format,
-            });
-          }
-        }
-
-        // Strategy 3: Fallback - find any time patterns near the movie title
-        if (results.length === 0 && (titleIndex >= 0 || firstWordIndex >= 0)) {
-          const idx = titleIndex >= 0 ? titleIndex : firstWordIndex;
-          const nearbyText = allText.substring(Math.max(0, idx - 100), Math.min(allText.length, idx + 2000));
-          const timeMatches = nearbyText.match(/(\\d{1,2}:\\d{2}\\s*(?:AM|PM|am|pm))/gi) || [];
-
-          for (const timeStr of timeMatches) {
-            results.push({
-              time: timeStr.toUpperCase(),
-              format: 'Standard',
-            });
+            const normalized = timeStr.toUpperCase();
+            if (seenTimes.has(normalized)) continue;
+            seenTimes.add(normalized);
+            results.push({ time: normalized, format: 'Standard' });
           }
         }
 
         return results;
-      })("${escapedTitle}", "${firstWord}")
+      })()
     `;
 
     return await page.evaluate(script) as ScrapedShowtime[];

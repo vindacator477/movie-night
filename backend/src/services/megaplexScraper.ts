@@ -109,7 +109,8 @@ export class MegaplexScraper {
 
     try {
       const dateStr = date.toISOString().split('T')[0];
-      const url = `https://megaplex.com/${slug}`;
+      // Try including date in URL - Megaplex may support date parameter
+      const url = `https://megaplex.com/${slug}?date=${dateStr}`;
       console.log(`Scraping Megaplex: ${url} for "${movieTitle}" on ${dateStr}`);
 
       // Intercept network requests to capture API responses
@@ -145,6 +146,10 @@ export class MegaplexScraper {
       if (clicked) {
         // Wait for showtimes to load after clicking
         await page.waitForTimeout(4000);
+      } else {
+        // If we couldn't find the movie, don't return false data
+        console.log(`Movie "${movieTitle}" not found at ${theaterName}, skipping`);
+        return null;
       }
 
       // Check intercepted API data
@@ -161,7 +166,7 @@ export class MegaplexScraper {
         }
       }
 
-      // Fallback: scrape the DOM
+      // Fallback: scrape the DOM (only if we clicked on the movie)
       const showtimes = await this.scrapeDOM(page, movieTitle);
 
       if (showtimes.length === 0) {
@@ -312,30 +317,100 @@ export class MegaplexScraper {
       targetDate.setHours(0, 0, 0, 0);
 
       if (targetDate.getTime() === today.getTime()) {
+        console.log('Target date is today, no need to change date selector');
         return; // Today is usually the default
       }
 
-      // Look for date buttons with various patterns
       const dateDay = date.getDate();
+      const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+      const dayName = dayNames[date.getDay()];
+      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      const monthName = monthNames[date.getMonth()];
+
+      console.log(`Looking for date selector: day=${dateDay}, dayName=${dayName}, month=${monthName}`);
+
+      // Debug: Log what navigation/date-related elements exist on the page
+      const dateElements = await page.evaluate(`
+        (function() {
+          const results = [];
+          // Look for navigation elements, tabs, or elements near the top of the page
+          const candidates = document.querySelectorAll('nav *, header *, [class*="tab"], [class*="filter"], [class*="picker"], [class*="carousel"], [class*="swiper"], [class*="slide"]');
+          for (const el of candidates) {
+            const text = el.textContent?.trim() || '';
+            // Look for short text elements
+            if (text.length > 0 && text.length < 25 && el.offsetWidth > 0) {
+              results.push({
+                tag: el.tagName,
+                class: (el.className?.toString().substring?.(0, 60) || ''),
+                text: text.substring(0, 25)
+              });
+            }
+          }
+          // Also look for any element containing day names
+          const dayElements = document.querySelectorAll('*');
+          for (const el of dayElements) {
+            const text = el.textContent?.trim() || '';
+            if (text.length < 15 && /^(Mon|Tue|Wed|Thu|Fri|Sat|Sun|Today|Tomorrow)/i.test(text)) {
+              results.push({
+                tag: el.tagName,
+                class: (el.className?.toString().substring?.(0, 60) || ''),
+                text: text,
+                isDay: true
+              });
+            }
+          }
+          return results.slice(0, 25);
+        })()
+      `);
+      console.log('Navigation elements found:', JSON.stringify(dateElements));
+
+      // Try various selector patterns
       const selectors = [
+        // Day number patterns
         `button:has-text("${dateDay}")`,
+        `a:has-text("${dateDay}")`,
         `[role="tab"]:has-text("${dateDay}")`,
-        `.mat-tab-label:has-text("${dateDay}")`,
         `[class*="date"]:has-text("${dateDay}")`,
+        `[class*="day"]:has-text("${dateDay}")`,
+        `.swiper-slide:has-text("${dateDay}")`,
+        // Day name + number patterns (e.g., "Sat 31" or "Saturday 31")
+        `button:has-text("${dayName}")`,
+        `a:has-text("${dayName}")`,
+        `[class*="date"]:has-text("${dayName}")`,
+        // Month + day patterns (e.g., "Jan 31")
+        `button:has-text("${monthName} ${dateDay}")`,
+        `a:has-text("${monthName} ${dateDay}")`,
       ];
 
       for (const selector of selectors) {
         try {
-          const element = await page.$(selector);
-          if (element) {
-            await element.click();
-            await page.waitForTimeout(2000);
-            console.log(`Selected date using selector: ${selector}`);
-            return;
+          const elements = await page.$$(selector);
+          for (const element of elements) {
+            const text = await element.textContent();
+            // Make sure this element actually contains our target date
+            if (text && (text.includes(String(dateDay)) || text.toLowerCase().includes(dayName.toLowerCase()))) {
+              await element.click();
+              await page.waitForTimeout(2000);
+              console.log(`Selected date using selector: ${selector}, text: ${text?.trim()}`);
+              return;
+            }
           }
         } catch {
           continue;
         }
+      }
+
+      // Last resort: try clicking by exact text content
+      try {
+        const dateLink = await page.getByText(String(dateDay), { exact: true }).first();
+        if (dateLink) {
+          await dateLink.click();
+          await page.waitForTimeout(2000);
+          console.log(`Selected date using getByText("${dateDay}")`);
+          return;
+        }
+      } catch {
+        // Ignore
       }
 
       console.log('Could not find date selector, using default date');

@@ -133,6 +133,12 @@ export const getRankingsWinner = (sessionId: string) =>
 export const getNowPlaying = (page: number = 1) =>
   fetchApi<import('../types').TMDbResponse>(`/movies/now-playing?page=${page}`);
 
+// Get movies showing locally (based on actual theater showtimes)
+export const getLocalMovies = (zip?: string, date?: string) =>
+  fetchApi<import('../types').TMDbResponse>(
+    `/movies/local?${zip ? `zip=${zip}` : ''}${date ? `&date=${date}` : ''}`
+  );
+
 export const searchMovies = (query: string, page: number = 1) =>
   fetchApi<import('../types').TMDbResponse>(`/movies/search?q=${encodeURIComponent(query)}&page=${page}`);
 

@@ -14,7 +14,20 @@ interface GracenoteShowtime {
 interface GracenoteMovie {
   tmsId: string;
   title: string;
+  releaseYear?: number;
+  genres?: string[];
+  longDescription?: string;
+  shortDescription?: string;
   showtimes?: GracenoteShowtime[];
+}
+
+export interface LocalMovie {
+  title: string;
+  tmsId: string;
+  releaseYear?: number;
+  genres?: string[];
+  description?: string;
+  theaterCount: number;
 }
 
 export class GracenoteService {
@@ -188,5 +201,79 @@ export class GracenoteService {
     if (!isPM && hours === 12) hours = 0;
 
     return hours * 60 + minutes;
+  }
+
+  /**
+   * Get all movies currently showing in local theaters
+   */
+  async getLocalMovies(params: {
+    date: Date;
+    zip?: string;
+    radius?: number;
+  }): Promise<LocalMovie[]> {
+    const { date, zip = '84057', radius = 15 } = params;
+    const dateStr = date.toISOString().split('T')[0];
+
+    try {
+      const url = new URL(`${this.baseUrl}/movies/showings`);
+      url.searchParams.set('startDate', dateStr);
+      url.searchParams.set('zip', zip);
+      url.searchParams.set('radius', radius.toString());
+      url.searchParams.set('api_key', this.apiKey);
+
+      console.log(`Gracenote local movies request: ${url.toString().replace(this.apiKey, '***')}`);
+
+      const response = await fetch(url.toString());
+
+      if (!response.ok) {
+        throw new Error(`Gracenote API error: ${response.status}`);
+      }
+
+      const movies = await response.json() as GracenoteMovie[];
+
+      if (!Array.isArray(movies)) {
+        return [];
+      }
+
+      // Deduplicate movies by base title (ignore 3D, IMAX variants)
+      const movieMap = new Map<string, LocalMovie>();
+
+      for (const movie of movies) {
+        // Normalize title to group variants (e.g., "Avatar 3D" and "Avatar" become one entry)
+        const baseTitle = movie.title
+          .replace(/\s*[\(\[]?(3D|IMAX|An IMAX.*Experience|The IMAX.*Experience|Dolby Cinema)[\)\]]?\s*$/gi, '')
+          .trim();
+
+        const existing = movieMap.get(baseTitle.toLowerCase());
+
+        // Count unique theaters showing this movie
+        const theaters = new Set(movie.showtimes?.map(s => s.theatre?.id || s.theatre?.name) || []);
+
+        if (existing) {
+          // Merge theater counts
+          existing.theaterCount = Math.max(existing.theaterCount, theaters.size);
+        } else {
+          movieMap.set(baseTitle.toLowerCase(), {
+            title: baseTitle,
+            tmsId: movie.tmsId,
+            releaseYear: movie.releaseYear,
+            genres: movie.genres,
+            description: movie.shortDescription || movie.longDescription,
+            theaterCount: theaters.size,
+          });
+        }
+      }
+
+      // Convert to array and sort by theater count (most popular first)
+      const results = Array.from(movieMap.values())
+        .sort((a, b) => b.theaterCount - a.theaterCount);
+
+      console.log(`Found ${results.length} unique movies showing locally`);
+      return results;
+
+    } catch (error) {
+      console.error('Error fetching local movies:', error);
+      return [];
+    }
   }
 }

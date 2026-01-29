@@ -56,14 +56,48 @@ router.get('/', async (req: Request, res: Response) => {
     }
 
     const theaters = Array.from(theaterMap.values());
-    console.log(`Found ${theaters.length} theaters near ${zipCode || city}`);
-    
-    // If no results from Gracenote, return fallback list
-    if (theaters.length === 0) {
-      res.json(getFallbackTheaters(zipCode));
-    } else {
-      res.json(theaters);
+    console.log(`Found ${theaters.length} theaters from Gracenote near ${zipCode || city}`);
+
+    // Always merge with fallback theaters to ensure we have Megaplex theaters
+    // (Gracenote may not always return all theaters)
+    const fallbackTheaters = getFallbackTheaters(zipCode);
+    const mergedTheaters = [...theaters];
+
+    // Add fallback theaters that aren't already in the list
+    for (const fallback of fallbackTheaters) {
+      const fallbackLower = fallback.name.toLowerCase();
+      // Check for actual duplicates by looking for key identifying parts
+      const exists = mergedTheaters.some(t => {
+        const existingLower = t.name.toLowerCase();
+        // Same name (exact or very similar)
+        if (existingLower === fallbackLower) return true;
+        // Both have same specific location identifier
+        if (fallbackLower.includes('jordan commons') && existingLower.includes('jordan commons')) return true;
+        if (fallbackLower.includes('district') && existingLower.includes('district')) return true;
+        if (fallbackLower.includes('gateway') && existingLower.includes('gateway')) return true;
+        if (fallbackLower.includes('daybreak') && existingLower.includes('daybreak')) return true;
+        if (fallbackLower.includes('valley fair') && existingLower.includes('valley fair')) return true;
+        if (fallbackLower.includes('cottonwood') && existingLower.includes('cottonwood')) return true;
+        if (fallbackLower.includes('vineyard') && existingLower.includes('vineyard')) return true;
+        if (fallbackLower.includes('geneva') && existingLower.includes('geneva')) return true;
+        if (fallbackLower.includes('lehi') && existingLower.includes('lehi')) return true;
+        if (fallbackLower.includes('thanksgiving') && existingLower.includes('thanksgiving')) return true;
+        return false;
+      });
+      if (!exists) {
+        mergedTheaters.push(fallback);
+      }
     }
+
+    // Sort so Megaplex theaters appear first (since we can scrape them)
+    mergedTheaters.sort((a, b) => {
+      if (a.chain === 'megaplex' && b.chain !== 'megaplex') return -1;
+      if (a.chain !== 'megaplex' && b.chain === 'megaplex') return 1;
+      return a.name.localeCompare(b.name);
+    });
+
+    console.log(`Returning ${mergedTheaters.length} total theaters (merged with fallback)`);
+    res.json(mergedTheaters);
   } catch (error) {
     console.error('Error searching theaters:', error);
     res.status(500).json({ error: 'Failed to search theaters' });

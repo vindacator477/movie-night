@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Session, Participant, TMDbMovie } from '../types';
 import { useSession } from '../hooks/useSession';
-import { useNowPlaying, useMovieSearch } from '../hooks/useMovies';
+import { useLocalMovies, useMovieSearch } from '../hooks/useMovies';
 import Card from './ui/Card';
 import Button from './ui/Button';
 
@@ -14,10 +14,14 @@ const POSTER_BASE = 'https://image.tmdb.org/t/p/w185';
 
 export default function MovieVoting({ session, participant }: Props) {
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeTab, setActiveTab] = useState<'now-playing' | 'search' | 'session'>('session');
+  const [activeTab, setActiveTab] = useState<'local' | 'search' | 'session'>('session');
 
   const { addMovie, voteForMovie, removeVoteForMovie } = useSession(session.id);
-  const { data: nowPlaying, isLoading: nowPlayingLoading } = useNowPlaying();
+  // Use local movies based on session location and date
+  const { data: localMovies, isLoading: localMoviesLoading } = useLocalMovies(
+    session.location_zip || '84070',
+    session.selected_date || new Date().toISOString().split('T')[0]
+  );
   const { data: searchResults, isLoading: searchLoading } = useMovieSearch(searchQuery);
 
   const handleAddMovie = async (movie: TMDbMovie) => {
@@ -149,14 +153,14 @@ export default function MovieVoting({ session, participant }: Props) {
           Session Movies ({session.movieOptions.length})
         </button>
         <button
-          onClick={() => setActiveTab('now-playing')}
+          onClick={() => setActiveTab('local')}
           className={`px-4 py-2 font-medium transition-colors ${
-            activeTab === 'now-playing'
+            activeTab === 'local'
               ? 'text-cinema-accent border-b-2 border-cinema-accent'
               : 'text-gray-400 hover:text-white'
           }`}
         >
-          Now Playing
+          Playing Locally
         </button>
         <button
           onClick={() => setActiveTab('search')}
@@ -204,18 +208,21 @@ export default function MovieVoting({ session, participant }: Props) {
         </div>
       )}
 
-      {/* Now Playing Tab */}
-      {activeTab === 'now-playing' && (
+      {/* Playing Locally Tab */}
+      {activeTab === 'local' && (
         <div>
-          {nowPlayingLoading ? (
-            <div className="text-center py-8 text-gray-400">Loading movies...</div>
-          ) : nowPlaying?.results ? (
+          <p className="text-sm text-gray-400 mb-4">
+            Movies currently showing at theaters near {session.location_zip || 'your location'}
+          </p>
+          {localMoviesLoading ? (
+            <div className="text-center py-8 text-gray-400">Loading local movies...</div>
+          ) : localMovies?.results && localMovies.results.length > 0 ? (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-              {nowPlaying.results.map(movie => renderMovieCard(movie))}
+              {localMovies.results.map(movie => renderMovieCard(movie))}
             </div>
           ) : (
             <div className="text-center py-8 text-gray-400">
-              Unable to load movies. Please try again later.
+              No local movie data available. Try searching for a specific movie.
             </div>
           )}
         </div>

@@ -8,6 +8,14 @@ export function useNowPlaying(page: number = 1) {
   });
 }
 
+export function useLocalMovies(zip?: string, date?: string) {
+  return useQuery({
+    queryKey: ['movies', 'local', zip, date],
+    queryFn: () => api.getLocalMovies(zip, date),
+    enabled: true, // Always enabled - will use default zip if not provided
+  });
+}
+
 export function useMovieSearch(query: string, page: number = 1) {
   return useQuery({
     queryKey: ['movies', 'search', query, page],

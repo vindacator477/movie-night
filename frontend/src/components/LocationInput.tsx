@@ -11,14 +11,30 @@ interface Props {
   onAdvance: () => void;
 }
 
-// Get next 2 days for date selection (Gracenote only has showtimes 1-2 days out)
+// Get next 7 days for date selection
 function getUpcomingDates(): { value: string; label: string }[] {
   const dates = [];
-  for (let i = 0; i < 2; i++) {
+  const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+  for (let i = 0; i < 7; i++) {
     const date = new Date();
     date.setDate(date.getDate() + i);
     const value = date.toISOString().split('T')[0];
-    dates.push({ value, label: i === 0 ? 'Today' : 'Tomorrow' });
+
+    let label: string;
+    if (i === 0) {
+      label = 'Today';
+    } else if (i === 1) {
+      label = 'Tomorrow';
+    } else {
+      // Show day name and date (e.g., "Sat 2/1")
+      const dayName = dayNames[date.getDay()];
+      const month = date.getMonth() + 1;
+      const day = date.getDate();
+      label = `${dayName} ${month}/${day}`;
+    }
+
+    dates.push({ value, label });
   }
   return dates;
 }
@@ -114,7 +130,7 @@ export default function LocationInput({ session, participant, onAdvance }: Props
           ))}
         </div>
         <p className="text-xs text-gray-500 mt-2">
-          Showtimes are typically only available 1-2 days in advance.
+          Select a date to see available showtimes.
         </p>
       </div>
 

@@ -87,31 +87,6 @@ export default function CreateSession() {
             />
           </div>
 
-          {/* Start new session */}
-          <div>
-            <Button
-              onClick={handleStartSession}
-              disabled={isLoading || !name.trim()}
-              className="w-full"
-              variant="primary"
-            >
-              {isLoading ? 'Starting...' : '✨ Start Movie Night'}
-            </Button>
-            <p className="text-xs text-gray-500 mt-2 text-center">
-              Creates a new session - you become the admin
-            </p>
-          </div>
-
-          {/* Divider */}
-          <div className="relative">
-            <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-gray-700"></div>
-            </div>
-            <div className="relative flex justify-center text-sm">
-              <span className="px-2 bg-gray-900 text-gray-500">or join existing</span>
-            </div>
-          </div>
-
           {/* Join existing session */}
           <div>
             <label htmlFor="roomCode" className="block text-sm font-medium text-gray-300 mb-2">
@@ -130,11 +105,36 @@ export default function CreateSession() {
               <Button
                 onClick={handleJoinSession}
                 disabled={isLoading || !roomCode.trim()}
-                variant="secondary"
+                variant="primary"
               >
                 Join
               </Button>
             </div>
+          </div>
+
+          {/* Divider */}
+          <div className="relative">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-gray-700"></div>
+            </div>
+            <div className="relative flex justify-center text-sm">
+              <span className="px-2 bg-gray-900 text-gray-500">or start new</span>
+            </div>
+          </div>
+
+          {/* Start new session */}
+          <div>
+            <Button
+              onClick={handleStartSession}
+              disabled={isLoading || !name.trim()}
+              className="w-full"
+              variant="secondary"
+            >
+              {isLoading ? 'Starting...' : '✨ Start New Movie Night'}
+            </Button>
+            <p className="text-xs text-gray-500 mt-2 text-center">
+              Creates a new session - you become the admin
+            </p>
           </div>
 
           {error && (

@@ -735,6 +735,17 @@ router.get('/:id/rankings/winner', async (req: Request, res: Response) => {
       movieInfo.set(row.tmdb_id, { title: row.title, poster_path: row.poster_path });
     }
 
+    // Helper to count how many times a candidate appears at a specific rank
+    const countAtRank = (candidateId: number, rank: number): number => {
+      let count = 0;
+      for (const ballot of ballots.values()) {
+        if (ballot[rank - 1] === candidateId) {
+          count++;
+        }
+      }
+      return count;
+    };
+
     // Instant runoff voting
     const rounds: Array<{ counts: Record<number, number>; eliminated?: number }> = [];
     let remainingCandidates = new Set(movieInfo.keys());
@@ -773,13 +784,57 @@ router.get('/:id/rankings/winner', async (req: Request, res: Response) => {
         }
       }
 
-      // Eliminate candidate with fewest votes
-      let minVotes = Infinity;
-      let toEliminate = 0;
-      for (const [candidate, count] of Object.entries(counts)) {
-        if (count < minVotes) {
-          minVotes = count;
-          toEliminate = parseInt(candidate);
+      // Find candidates with fewest votes (may be multiple if tied)
+      const minVotes = Math.min(...Object.values(counts));
+      const tiedForElimination = Object.entries(counts)
+        .filter(([_, count]) => count === minVotes)
+        .map(([candidate, _]) => parseInt(candidate));
+
+      let toEliminate: number;
+      if (tiedForElimination.length === 1) {
+        toEliminate = tiedForElimination[0];
+      } else {
+        // Tiebreaker: use Borda count (weighted sum of all rankings)
+        // Higher total score = more overall support = should NOT be eliminated
+        // 1st place = 3 points, 2nd = 2 points, 3rd = 1 point
+        const getBordaScore = (candidateId: number): number => {
+          let score = 0;
+          for (const ballot of ballots.values()) {
+            const idx = ballot.indexOf(candidateId);
+            if (idx === 0) score += 3;
+            else if (idx === 1) score += 2;
+            else if (idx === 2) score += 1;
+          }
+          return score;
+        };
+
+        // Eliminate the one with lowest Borda score (least overall support)
+        let lowestScore = Infinity;
+        let lowestScoreCandidates: number[] = [];
+        for (const candidate of tiedForElimination) {
+          const score = getBordaScore(candidate);
+          if (score < lowestScore) {
+            lowestScore = score;
+            lowestScoreCandidates = [candidate];
+          } else if (score === lowestScore) {
+            lowestScoreCandidates.push(candidate);
+          }
+        }
+
+        if (lowestScoreCandidates.length === 1) {
+          toEliminate = lowestScoreCandidates[0];
+        } else {
+          // True tie detected - return tie result
+          const tiedMovies = lowestScoreCandidates.map(id => ({
+            tmdb_id: id,
+            ...movieInfo.get(id)
+          }));
+          rounds.push({ counts });
+          return res.json({
+            winner: null,
+            tie: tiedMovies,
+            rounds
+          });
         }
       }
 
@@ -794,11 +849,62 @@ router.get('/:id/rankings/winner', async (req: Request, res: Response) => {
         tmdb_id: winnerId,
         ...movieInfo.get(winnerId)
       } : null,
+      tie: null,
       rounds
     });
   } catch (error) {
     console.error('Error calculating winner:', error);
     res.status(500).json({ error: 'Failed to calculate winner' });
+  }
+});
+
+// Admin breaks a tie by selecting the winner
+router.post('/:id/rankings/break-tie', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { participantId, tmdbId, title, posterPath } = req.body;
+
+    if (!participantId || !tmdbId) {
+      return res.status(400).json({ error: 'participantId and tmdbId are required' });
+    }
+
+    // Verify participant is admin
+    const sessionResult = await query<{ admin_participant_id: string }>(
+      'SELECT admin_participant_id FROM sessions WHERE id = $1',
+      [id]
+    );
+
+    if (sessionResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+
+    if (sessionResult.rows[0].admin_participant_id !== participantId) {
+      return res.status(403).json({ error: 'Only the admin can break ties' });
+    }
+
+    // Delete admin's existing rankings and add a single #1 vote for the chosen movie
+    // This effectively gives the chosen movie an extra first-place vote to break the tie
+    await query(
+      `DELETE FROM movie_rankings WHERE session_id = $1 AND participant_id = $2`,
+      [id, participantId]
+    );
+
+    await query(
+      `INSERT INTO movie_rankings (session_id, participant_id, tmdb_id, title, poster_path, rank)
+       VALUES ($1, $2, $3, $4, $5, 1)`,
+      [id, participantId, tmdbId, title, posterPath]
+    );
+
+    // Emit socket event
+    const io = req.app.get('io');
+    if (io) {
+      io.to(id).emit('session-updated');
+    }
+
+    res.json({ success: true, message: 'Tie broken successfully' });
+  } catch (error) {
+    console.error('Error breaking tie:', error);
+    res.status(500).json({ error: 'Failed to break tie' });
   }
 });
 

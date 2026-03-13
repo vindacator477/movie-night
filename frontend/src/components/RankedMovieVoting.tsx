@@ -49,6 +49,17 @@ export default function RankedMovieVoting({ session, participant }: Props) {
     },
   });
 
+  const breakTieMutation = useMutation({
+    mutationFn: (movie: { tmdbId: number; title: string; posterPath: string | null }) =>
+      api.breakTie(session.id, participant.id, movie),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['rankings', session.id] });
+      queryClient.invalidateQueries({ queryKey: ['rankings-winner', session.id] });
+    },
+  });
+
+  const isAdmin = session.admin_participant_id === participant.id;
+
   const handleSelectMovie = (movie: TMDbMovie) => {
     if (myPicks.some(p => p.tmdbId === movie.id)) {
       // Remove from picks
@@ -188,6 +199,47 @@ export default function RankedMovieVoting({ session, participant }: Props) {
               </p>
             </div>
           </div>
+        </Card>
+      )}
+
+      {/* Tie Result */}
+      {winnerData?.tie && participantsWhoVoted > 0 && (
+        <Card className="border-yellow-500 bg-yellow-900/20">
+          <h4 className="font-bold mb-2 text-yellow-400">It's a Tie!</h4>
+          <p className="text-gray-300 text-sm mb-3">
+            {isAdmin
+              ? 'As the admin, click on a movie to break the tie:'
+              : 'These movies have equal support. The admin can break the tie:'}
+          </p>
+          <div className="flex gap-4 flex-wrap">
+            {winnerData.tie.map((movie: { tmdb_id: number; title: string; poster_path: string }) => (
+              <div
+                key={movie.tmdb_id}
+                onClick={() => isAdmin && breakTieMutation.mutate({
+                  tmdbId: movie.tmdb_id,
+                  title: movie.title,
+                  posterPath: movie.poster_path,
+                })}
+                className={`flex items-center gap-2 p-2 rounded-lg transition-all ${
+                  isAdmin
+                    ? 'cursor-pointer hover:bg-yellow-600/30 hover:ring-2 hover:ring-yellow-400'
+                    : ''
+                }`}
+              >
+                {movie.poster_path && (
+                  <img
+                    src={`${POSTER_BASE}${movie.poster_path}`}
+                    alt={movie.title}
+                    className="w-12 rounded"
+                  />
+                )}
+                <span className="font-medium">{movie.title}</span>
+              </div>
+            ))}
+          </div>
+          {breakTieMutation.isPending && (
+            <p className="mt-3 text-sm text-yellow-400">Breaking tie...</p>
+          )}
         </Card>
       )}
 

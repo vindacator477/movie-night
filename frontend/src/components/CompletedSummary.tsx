@@ -23,6 +23,45 @@ export default function CompletedSummary({ session }: Props) {
   const selectedMovie = winnerData?.winner;
   const winningShowtime = showtimeVotes?.winner;
 
+  // Generate Google Calendar URL
+  const getGoogleCalendarUrl = () => {
+    if (!winningShowtime || !selectedMovie || !session.selected_date) return null;
+
+    const dateStr = session.selected_date.includes('T')
+      ? session.selected_date.split('T')[0]
+      : session.selected_date;
+
+    // Parse showtime (e.g., "7:30 PM" or "10:05 AM")
+    const timeMatch = winningShowtime.showtime.match(/(\d+):(\d+)\s*(AM|PM)/i);
+    if (!timeMatch) return null;
+
+    let hours = parseInt(timeMatch[1]);
+    const minutes = parseInt(timeMatch[2]);
+    const isPM = timeMatch[3].toUpperCase() === 'PM';
+
+    if (isPM && hours !== 12) hours += 12;
+    if (!isPM && hours === 12) hours = 0;
+
+    // Create start datetime (format: YYYYMMDDTHHMMSS)
+    const [year, month, day] = dateStr.split('-');
+    const startTime = `${year}${month}${day}T${hours.toString().padStart(2, '0')}${minutes.toString().padStart(2, '0')}00`;
+
+    // Assume movie is ~2.5 hours
+    const endHours = hours + 2;
+    const endMinutes = minutes + 30;
+    const adjustedEndHours = endMinutes >= 60 ? endHours + 1 : endHours;
+    const adjustedEndMinutes = endMinutes >= 60 ? endMinutes - 60 : endMinutes;
+    const endTime = `${year}${month}${day}T${adjustedEndHours.toString().padStart(2, '0')}${adjustedEndMinutes.toString().padStart(2, '0')}00`;
+
+    const title = encodeURIComponent(`Movie Night: ${selectedMovie.title}`);
+    const details = encodeURIComponent(`Showtime: ${winningShowtime.showtime}${winningShowtime.format !== 'Standard' ? ` (${winningShowtime.format})` : ''}\nTheater: ${winningShowtime.theaterName}`);
+    const location = encodeURIComponent(winningShowtime.theaterName);
+
+    return `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${title}&dates=${startTime}/${endTime}&details=${details}&location=${location}`;
+  };
+
+  const calendarUrl = getGoogleCalendarUrl();
+
   // Format the selected date
   const formatDate = (dateStr: string | null) => {
     if (!dateStr) return 'Not selected';
@@ -110,6 +149,23 @@ export default function CompletedSummary({ session }: Props) {
           <p className="text-gray-400">No showtime votes were cast</p>
         )}
       </Card>
+
+      {/* Add to Google Calendar */}
+      {calendarUrl && (
+        <Card className="text-center">
+          <a
+            href={calendarUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-3 px-6 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors text-lg font-medium"
+          >
+            <svg className="w-6 h-6" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M19 4h-1V2h-2v2H8V2H6v2H5c-1.11 0-1.99.9-1.99 2L3 20a2 2 0 002 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 16H5V9h14v11zM9 11H7v2h2v-2zm4 0h-2v2h2v-2zm4 0h-2v2h2v-2zm-8 4H7v2h2v-2zm4 0h-2v2h2v-2zm4 0h-2v2h2v-2z"/>
+            </svg>
+            Add to Google Calendar
+          </a>
+        </Card>
+      )}
 
       {/* All Showtime Votes */}
       {showtimeVotes && showtimeVotes.voteCounts.length > 1 && (

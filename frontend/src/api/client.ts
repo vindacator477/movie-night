@@ -126,8 +126,24 @@ export const getRankings = (sessionId: string) =>
 export const getRankingsWinner = (sessionId: string) =>
   fetchApi<{
     winner: { tmdb_id: number; title: string; poster_path: string } | null;
+    tie: Array<{ tmdb_id: number; title: string; poster_path: string }> | null;
     rounds: Array<{ counts: Record<number, number>; eliminated?: number }>;
   }>(`/sessions/${sessionId}/rankings/winner`);
+
+export const breakTie = (
+  sessionId: string,
+  participantId: string,
+  movie: { tmdbId: number; title: string; posterPath: string | null }
+) =>
+  fetchApi(`/sessions/${sessionId}/rankings/break-tie`, {
+    method: 'POST',
+    body: JSON.stringify({
+      participantId,
+      tmdbId: movie.tmdbId,
+      title: movie.title,
+      posterPath: movie.posterPath,
+    }),
+  });
 
 // Movies (TMDb)
 export const getNowPlaying = (page: number = 1) =>

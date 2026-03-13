@@ -125,6 +125,31 @@ export default function ShowtimeDisplay({ session, participantId }: Props) {
   );
 
   if (!selectedMovie || !session.selected_date) {
+    // Check if there's a tie
+    if (winnerData?.tie) {
+      return (
+        <Card className="text-center border-yellow-500 bg-yellow-900/20">
+          <h3 className="text-xl font-bold mb-2 text-yellow-400">Movie Voting Tied!</h3>
+          <p className="text-gray-300 mb-4">
+            The following movies are tied. The admin can break the tie on the movie voting screen:
+          </p>
+          <div className="flex justify-center gap-4 flex-wrap">
+            {winnerData.tie.map((movie) => (
+              <div key={movie.tmdb_id} className="text-center">
+                {movie.poster_path && (
+                  <img
+                    src={`https://image.tmdb.org/t/p/w92${movie.poster_path}`}
+                    alt={movie.title}
+                    className="w-16 rounded mx-auto mb-1"
+                  />
+                )}
+                <span className="text-sm font-medium">{movie.title}</span>
+              </div>
+            ))}
+          </div>
+        </Card>
+      );
+    }
     return (
       <Card className="text-center">
         <p className="text-gray-400">No movie or date selected.</p>
@@ -221,8 +246,8 @@ export default function ShowtimeDisplay({ session, participantId }: Props) {
               {myVotes.length === 0 ? 'Click on showtimes below to cast your votes!' : `You can vote for ${MAX_VOTES - myVotes.length} more showtime${MAX_VOTES - myVotes.length > 1 ? 's' : ''}!`}
             </p>
           )}
-          {/* Add to Google Calendar button */}
-          {voteData.winner && getGoogleCalendarUrl() && (
+          {/* Add to Google Calendar button - only show after voting is completed */}
+          {session.status === 'completed' && voteData.winner && getGoogleCalendarUrl() && (
             <div className="mt-4 pt-4 border-t border-gray-700">
               <a
                 href={getGoogleCalendarUrl()!}

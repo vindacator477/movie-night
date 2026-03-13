@@ -23,8 +23,8 @@ const cityToZip: Record<string, string> = {
   'millcreek': '84109', 'sugarhouse': '84106', 'sugar house': '84106',
 };
 
-// Megaplex theaters we want to always include via scraping
-const MEGAPLEX_THEATERS_TO_SCRAPE = ['jordan-commons', 'lehi'];
+// Only fetch from Jordan Commons (using direct Megaplex API)
+const MEGAPLEX_THEATERS_TO_FETCH = ['jordan-commons'];
 
 // Get showtimes
 router.get('/', async (req: Request, res: Response) => {
@@ -79,31 +79,36 @@ router.get('/', async (req: Request, res: Response) => {
           })
         : Promise.resolve([] as ShowtimeResult[]),
 
-      // Megaplex scraper for Jordan Commons and Lehi
+      // Megaplex API for Jordan Commons
       getMegaplexScraper().getShowtimes({
         movieTitle,
         date: showtimeDate,
-        theaters: MEGAPLEX_THEATERS_TO_SCRAPE,
+        theaters: MEGAPLEX_THEATERS_TO_FETCH,
       }).catch(err => {
-        console.error('Megaplex scraper error:', err);
+        console.error('Megaplex API error:', err);
         return [] as ShowtimeResult[];
       }),
     ]);
 
-    // Merge results - Megaplex scraper results take priority for those theaters
+    // Merge results - Megaplex API results take priority for Jordan Commons
     const megaplexNames = new Set(megaplexResults.map(r => r.theaterName.toLowerCase()));
     const filteredGracenote = gracenoteResults.filter(
       r => !megaplexNames.has(r.theaterName.toLowerCase()) &&
-           !r.theaterName.toLowerCase().includes('jordan commons') &&
-           !r.theaterName.toLowerCase().includes('lehi')
+           !r.theaterName.toLowerCase().includes('jordan commons')
     );
 
     const results = [...megaplexResults, ...filteredGracenote];
 
-    // Sort by theater name
-    results.sort((a, b) => a.theaterName.localeCompare(b.theaterName));
+    // Sort: Jordan Commons first, then alphabetically
+    results.sort((a, b) => {
+      const aIsJordanCommons = a.theaterName.toLowerCase().includes('jordan commons');
+      const bIsJordanCommons = b.theaterName.toLowerCase().includes('jordan commons');
+      if (aIsJordanCommons && !bIsJordanCommons) return -1;
+      if (!aIsJordanCommons && bIsJordanCommons) return 1;
+      return a.theaterName.localeCompare(b.theaterName);
+    });
 
-    console.log(`Combined results: ${megaplexResults.length} from Megaplex scraper, ${filteredGracenote.length} from Gracenote`);
+    console.log(`Combined results: ${megaplexResults.length} from Megaplex API, ${filteredGracenote.length} from Gracenote`);
 
     // Cache combined results (cache each theater separately)
     if (results.length > 0) {

@@ -39,8 +39,9 @@ export default function ShowtimeDisplay({ session, participantId }: Props) {
     },
   });
 
-  // Check if user has already voted
-  const myVote = voteData?.votes.find(v => v.participant_id === participantId);
+  // Check user's votes (can have up to 2)
+  const myVotes = voteData?.votes.filter(v => v.participant_id === participantId) || [];
+  const MAX_VOTES = 2;
 
   const handleShowtimeClick = (theaterName: string, showtime: string, format: string) => {
     if (!participantId) return;
@@ -49,7 +50,7 @@ export default function ShowtimeDisplay({ session, participantId }: Props) {
 
   // Helper to check if this showtime is selected by user
   const isSelected = (theaterName: string, showtime: string, format: string) => {
-    return myVote?.theater_name === theaterName && myVote?.showtime === showtime && myVote?.format === format;
+    return myVotes.some(v => v.theater_name === theaterName && v.showtime === showtime && v.format === format);
   };
 
   // Helper to get vote count for a showtime
@@ -66,6 +67,44 @@ export default function ShowtimeDisplay({ session, participantId }: Props) {
       v => v.theaterName === theaterName && v.showtime === showtime && v.format === format
     );
     return entry?.voters || [];
+  };
+
+  // Helper to generate Google Calendar URL
+  const getGoogleCalendarUrl = () => {
+    if (!voteData?.winner || !selectedMovie || !session.selected_date) return null;
+
+    const winner = voteData.winner;
+    const dateStr = session.selected_date.includes('T')
+      ? session.selected_date.split('T')[0]
+      : session.selected_date;
+
+    // Parse showtime (e.g., "7:30 PM" or "10:05 AM")
+    const timeMatch = winner.showtime.match(/(\d+):(\d+)\s*(AM|PM)/i);
+    if (!timeMatch) return null;
+
+    let hours = parseInt(timeMatch[1]);
+    const minutes = parseInt(timeMatch[2]);
+    const isPM = timeMatch[3].toUpperCase() === 'PM';
+
+    if (isPM && hours !== 12) hours += 12;
+    if (!isPM && hours === 12) hours = 0;
+
+    // Create start datetime (format: YYYYMMDDTHHMMSS)
+    const [year, month, day] = dateStr.split('-');
+    const startTime = `${year}${month}${day}T${hours.toString().padStart(2, '0')}${minutes.toString().padStart(2, '0')}00`;
+
+    // Assume movie is ~2.5 hours
+    const endHours = hours + 2;
+    const endMinutes = minutes + 30;
+    const adjustedEndHours = endMinutes >= 60 ? endHours + 1 : endHours;
+    const adjustedEndMinutes = endMinutes >= 60 ? endMinutes - 60 : endMinutes;
+    const endTime = `${year}${month}${day}T${adjustedEndHours.toString().padStart(2, '0')}${adjustedEndMinutes.toString().padStart(2, '0')}00`;
+
+    const title = encodeURIComponent(`Movie Night: ${selectedMovie.title}`);
+    const details = encodeURIComponent(`Showtime: ${winner.showtime}${winner.format !== 'Standard' ? ` (${winner.format})` : ''}\nTheater: ${winner.theaterName}`);
+    const location = encodeURIComponent(winner.theaterName);
+
+    return `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${title}&dates=${startTime}/${endTime}&details=${details}&location=${location}`;
   };
 
   const { data: theaters } = useTheaters(
@@ -167,15 +206,36 @@ export default function ShowtimeDisplay({ session, participantId }: Props) {
                 </div>
               ))}
           </div>
-          {myVote && (
+          {myVotes.length > 0 && (
+            <div className="mt-3 text-sm text-gray-400">
+              <p>Your votes ({myVotes.length}/{MAX_VOTES}):</p>
+              {myVotes.map((v, i) => (
+                <p key={i} className="text-cinema-accent ml-2">
+                  • {v.theater_name} @ {v.showtime}
+                </p>
+              ))}
+            </div>
+          )}
+          {myVotes.length < MAX_VOTES && participantId && (
             <p className="mt-3 text-sm text-gray-400">
-              Your vote: <span className="text-cinema-accent">{myVote.theater_name} @ {myVote.showtime}</span>
+              {myVotes.length === 0 ? 'Click on showtimes below to cast your votes!' : `You can vote for ${MAX_VOTES - myVotes.length} more showtime${MAX_VOTES - myVotes.length > 1 ? 's' : ''}!`}
             </p>
           )}
-          {!myVote && participantId && (
-            <p className="mt-3 text-sm text-gray-400">
-              Click on a showtime below to cast your vote!
-            </p>
+          {/* Add to Google Calendar button */}
+          {voteData.winner && getGoogleCalendarUrl() && (
+            <div className="mt-4 pt-4 border-t border-gray-700">
+              <a
+                href={getGoogleCalendarUrl()!}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors"
+              >
+                <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M19 4h-1V2h-2v2H8V2H6v2H5c-1.11 0-1.99.9-1.99 2L3 20a2 2 0 002 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 16H5V9h14v11zM9 11H7v2h2v-2zm4 0h-2v2h2v-2zm4 0h-2v2h2v-2zm-8 4H7v2h2v-2zm4 0h-2v2h2v-2zm4 0h-2v2h2v-2z"/>
+                </svg>
+                Add to Google Calendar
+              </a>
+            </div>
           )}
         </Card>
       )}
@@ -184,7 +244,7 @@ export default function ShowtimeDisplay({ session, participantId }: Props) {
       {voteData && voteData.voteCounts.length === 0 && participantId && (
         <Card className="bg-blue-900/20 border border-blue-500/30">
           <p className="text-center text-blue-300">
-            Click on any showtime below to vote for your preferred time!
+            Click on any showtime below to vote! You can select up to {MAX_VOTES} showtimes.
           </p>
         </Card>
       )}

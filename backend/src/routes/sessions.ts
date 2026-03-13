@@ -802,7 +802,9 @@ router.get('/:id/rankings/winner', async (req: Request, res: Response) => {
   }
 });
 
-// Vote for a showtime
+// Vote for a showtime (supports 2 votes per participant)
+const MAX_SHOWTIME_VOTES = 2;
+
 router.post('/:id/showtimes/vote', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
@@ -812,14 +814,57 @@ router.post('/:id/showtimes/vote', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'participantId, theaterName, and showtime are required' });
     }
 
-    // Upsert the vote (one vote per participant)
-    await query(
-      `INSERT INTO showtime_votes (session_id, participant_id, theater_name, showtime, format)
-       VALUES ($1, $2, $3, $4, $5)
-       ON CONFLICT (session_id, participant_id)
-       DO UPDATE SET theater_name = $3, showtime = $4, format = $5, created_at = NOW()`,
+    // Check if this exact vote already exists
+    const existingVote = await query<{ vote_slot: number }>(
+      `SELECT vote_slot FROM showtime_votes
+       WHERE session_id = $1 AND participant_id = $2
+       AND theater_name = $3 AND showtime = $4 AND format = $5`,
       [id, participantId, theaterName, showtime, format || 'Standard']
     );
+
+    if (existingVote.rows.length > 0) {
+      // Vote already exists, remove it (toggle behavior)
+      await query(
+        `DELETE FROM showtime_votes
+         WHERE session_id = $1 AND participant_id = $2
+         AND theater_name = $3 AND showtime = $4 AND format = $5`,
+        [id, participantId, theaterName, showtime, format || 'Standard']
+      );
+    } else {
+      // Get current votes for this participant
+      const currentVotes = await query<{ vote_slot: number }>(
+        `SELECT vote_slot FROM showtime_votes
+         WHERE session_id = $1 AND participant_id = $2
+         ORDER BY vote_slot`,
+        [id, participantId]
+      );
+
+      if (currentVotes.rows.length >= MAX_SHOWTIME_VOTES) {
+        // Already at max votes, replace the oldest (slot 1)
+        await query(
+          `UPDATE showtime_votes
+           SET theater_name = $3, showtime = $4, format = $5, created_at = NOW()
+           WHERE session_id = $1 AND participant_id = $2 AND vote_slot = 1`,
+          [id, participantId, theaterName, showtime, format || 'Standard']
+        );
+      } else {
+        // Find next available slot
+        const usedSlots = new Set(currentVotes.rows.map(v => v.vote_slot));
+        let nextSlot = 1;
+        for (let i = 1; i <= MAX_SHOWTIME_VOTES; i++) {
+          if (!usedSlots.has(i)) {
+            nextSlot = i;
+            break;
+          }
+        }
+
+        await query(
+          `INSERT INTO showtime_votes (session_id, participant_id, theater_name, showtime, format, vote_slot)
+           VALUES ($1, $2, $3, $4, $5, $6)`,
+          [id, participantId, theaterName, showtime, format || 'Standard', nextSlot]
+        );
+      }
+    }
 
     const io: Server = req.app.get('io');
     io.to(id).emit('showtime_vote_updated', { sessionId: id, participantId });

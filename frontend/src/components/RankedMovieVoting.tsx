@@ -19,7 +19,7 @@ interface RankedMovie {
 }
 
 const POSTER_BASE = 'https://image.tmdb.org/t/p/w185';
-const MAX_PICKS = 5;
+const MAX_PICKS = 3;
 
 export default function RankedMovieVoting({ session, participant }: Props) {
   const [myPicks, setMyPicks] = useState<RankedMovie[]>([]);
